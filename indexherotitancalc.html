@@ -1,0 +1,1349 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>戦闘シミュレーター - Game Calculator</title>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <style>
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      font-family: 'Rajdhani', sans-serif;
+      background: linear-gradient(135deg, #0f172a 0%, #1e3a8a 50%, #0f172a 100%);
+      color: #f1f5f9;
+      min-height: 100vh;
+      padding: 1rem;
+    }
+
+    .container {
+      max-width: 1400px;
+      margin: 0 auto;
+    }
+
+    /* ヘッダー */
+    .header {
+      background: linear-gradient(to right, #2563eb, #9333ea);
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      margin-bottom: 2rem;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.5), inset 0 0 20px rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .header h1 {
+      font-family: 'Orbitron', sans-serif;
+      font-size: 2.5rem;
+      font-weight: 900;
+      text-align: center;
+      text-shadow: 0 0 10px rgba(59, 130, 246, 0.8);
+      letter-spacing: 0.1em;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 1rem;
+    }
+
+    .header p {
+      text-align: center;
+      color: #bfdbfe;
+      margin-top: 0.5rem;
+      font-size: 1.125rem;
+    }
+
+    /* グリッドレイアウト */
+    .grid {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1.5rem;
+    }
+
+    @media (min-width: 1024px) {
+      .grid {
+        grid-template-columns: repeat(3, 1fr);
+      }
+    }
+
+    /* カード */
+    .card {
+      background: rgba(30, 41, 59, 0.5);
+      backdrop-filter: blur(10px);
+      padding: 1.5rem;
+      border-radius: 0.5rem;
+      box-shadow: 0 0 20px rgba(59, 130, 246, 0.5), inset 0 0 20px rgba(59, 130, 246, 0.1);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      transition: all 0.3s ease;
+    }
+
+    .card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 30px rgba(59, 130, 246, 0.6);
+    }
+
+    .card h2 {
+      font-size: 1.5rem;
+      font-weight: 700;
+      margin-bottom: 1rem;
+      color: #60a5fa;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* フォーム要素 */
+    .form-group {
+      margin-bottom: 0.75rem;
+    }
+
+    .form-label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 0.25rem;
+    }
+
+    .form-input, .form-select {
+      width: 100%;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.375rem;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      background: rgba(15, 23, 42, 0.6);
+      backdrop-filter: blur(10px);
+      color: white;
+      font-family: 'Rajdhani', sans-serif;
+      font-size: 1rem;
+    }
+
+    .form-input:focus, .form-select:focus {
+      outline: none;
+      border-color: #60a5fa;
+      box-shadow: 0 0 0 3px rgba(96, 165, 250, 0.1);
+    }
+
+    /* ボタン */
+    .btn {
+      padding: 0.5rem 1rem;
+      border-radius: 0.375rem;
+      border: none;
+      font-weight: 600;
+      font-family: 'Rajdhani', sans-serif;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-size: 1rem;
+    }
+
+    .btn-primary {
+      background: #1e40af;
+      color: white;
+    }
+
+    .btn-primary:hover {
+      background: #2563eb;
+      box-shadow: 0 0 20px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-primary.active {
+      background: #2563eb;
+      box-shadow: 0 0 20px rgba(37, 99, 235, 0.5);
+    }
+
+    .btn-secondary {
+      background: #334155;
+      color: #d1d5db;
+    }
+
+    .btn-secondary:hover {
+      background: #475569;
+    }
+
+    /* トグルスイッチ */
+    .toggle-container {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      margin-bottom: 1rem;
+      padding: 0.75rem;
+      background: rgba(15, 23, 42, 0.6);
+      border-radius: 0.375rem;
+      border: 1px solid rgba(59, 130, 246, 0.3);
+    }
+
+    .toggle-switch {
+      position: relative;
+      width: 50px;
+      height: 26px;
+      background: #475569;
+      border-radius: 13px;
+      cursor: pointer;
+      transition: background 0.3s;
+    }
+
+    .toggle-switch.active {
+      background: #2563eb;
+    }
+
+    .toggle-slider {
+      position: absolute;
+      top: 2px;
+      left: 2px;
+      width: 22px;
+      height: 22px;
+      background: white;
+      border-radius: 50%;
+      transition: transform 0.3s;
+    }
+
+    .toggle-switch.active .toggle-slider {
+      transform: translateX(24px);
+    }
+
+    .toggle-label {
+      font-weight: 600;
+      font-size: 1rem;
+      color: #e2e8f0;
+    }
+
+    /* プリセットボタングリッド */
+    .preset-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+    }
+
+    .preset-btn {
+      background: #334155;
+      color: white;
+      padding: 0.75rem 1rem;
+      border-radius: 0.375rem;
+      border: none;
+      cursor: pointer;
+      transition: all 0.3s ease;
+      font-family: 'Rajdhani', sans-serif;
+      font-weight: 600;
+    }
+
+    .preset-btn:hover {
+      background: #2563eb;
+      box-shadow: 0 0 20px rgba(37, 99, 235, 0.5);
+    }
+
+    .preset-label {
+      font-size: 0.75rem;
+      color: #9ca3af;
+      display: block;
+      margin-bottom: 0.25rem;
+    }
+
+    .preset-heroes {
+      font-size: 0.875rem;
+    }
+
+    /* 相性ボタン */
+    .compatibility-buttons {
+      display: flex;
+      gap: 0.5rem;
+    }
+
+    .compatibility-buttons .btn {
+      flex: 1;
+    }
+
+    /* 英雄カード */
+    .hero-card {
+      background: rgba(15, 23, 42, 0.6);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      margin-bottom: 1rem;
+    }
+
+    .hero-title {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #93c5fd;
+      margin-bottom: 0.5rem;
+    }
+
+    .hero-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.75rem;
+    }
+
+    /* タイタン装備 */
+    .titan-section {
+      background: rgba(15, 23, 42, 0.6);
+      padding: 1rem;
+      border-radius: 0.5rem;
+      border: 1px solid rgba(59, 130, 246, 0.2);
+      margin-bottom: 1.5rem;
+    }
+
+    .titan-hero-name {
+      font-size: 1.125rem;
+      font-weight: 700;
+      color: #c084fc;
+      margin-bottom: 0.75rem;
+    }
+
+    .titan-slot {
+      background: rgba(30, 41, 59, 0.5);
+      padding: 0.75rem;
+      border-radius: 0.375rem;
+      margin-bottom: 0.75rem;
+    }
+
+    .titan-slot-header {
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      font-size: 0.875rem;
+      font-weight: 600;
+      color: #cbd5e1;
+      margin-bottom: 0.5rem;
+    }
+
+    .titan-slot-icon {
+      width: 20px;
+      height: 20px;
+      stroke: currentColor;
+      fill: none;
+    }
+
+    .titan-slot-grid {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+    }
+
+    /* 結果ボックス */
+    .result-box {
+      background: linear-gradient(135deg, rgba(30, 41, 59, 0.8) 0%, rgba(15, 23, 42, 0.9) 100%);
+      border-left: 3px solid #3b82f6;
+      padding: 0.75rem;
+      border-radius: 0.375rem;
+      margin-bottom: 0.5rem;
+    }
+
+    .result-label {
+      color: #9ca3af;
+      font-size: 0.875rem;
+      margin-bottom: 0.25rem;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+
+    .result-value {
+      font-size: 1.25rem;
+      font-weight: 700;
+    }
+
+    .result-increase {
+      font-size: 0.75rem;
+      color: #34d399;
+      margin-left: 0.5rem;
+    }
+
+    .value-green { color: #86efac; }
+    .value-red { color: #fca5a5; }
+    .value-yellow { color: #fde047; }
+    .value-orange { color: #fdba74; }
+    .value-blue { color: #93c5fd; }
+    .value-purple { color: #c084fc; }
+
+    .result-highlight {
+      background: linear-gradient(to right, rgba(127, 29, 29, 0.3), rgba(153, 27, 27, 0.3));
+    }
+
+    .result-highlight-green {
+      background: linear-gradient(to right, rgba(20, 83, 45, 0.3), rgba(21, 128, 61, 0.3));
+    }
+
+    /* アイコン */
+    .icon {
+      display: inline-block;
+      width: 24px;
+      height: 24px;
+      vertical-align: middle;
+      stroke: currentColor;
+      fill: none;
+      stroke-width: 2;
+    }
+
+    .icon-large {
+      width: 40px;
+      height: 40px;
+    }
+
+    /* スペーシング */
+    .space-y-1 > * + * { margin-top: 0.25rem; }
+    .space-y-2 > * + * { margin-top: 0.5rem; }
+    .space-y-3 > * + * { margin-top: 0.75rem; }
+    .space-y-4 > * + * { margin-top: 1rem; }
+    .space-y-6 > * + * { margin-top: 1.5rem; }
+
+    /* レスポンシブ調整 */
+    @media (max-width: 640px) {
+      .header h1 {
+        font-size: 1.5rem;
+      }
+      
+      .preset-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    // アイコンコンポーネント
+    const ShieldIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+      </svg>
+    );
+
+    const SwordsIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"></path>
+      </svg>
+    );
+
+    const UsersIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path>
+      </svg>
+    );
+
+    const SettingsIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2 4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2 4.2-4.2"></path>
+      </svg>
+    );
+
+    const CalculatorIcon = () => (
+      <svg className="icon icon-large" viewBox="0 0 24 24">
+        <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+        <line x1="8" y1="6" x2="16" y2="6"></line>
+        <line x1="16" y1="14" x2="16" y2="18"></line>
+        <line x1="8" y1="14" x2="8" y2="18"></line>
+        <line x1="12" y1="14" x2="12" y2="18"></line>
+      </svg>
+    );
+
+    // タイタン装備アイコン
+    const RifleIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M6 8h8M6 12h8M6 16h8M14 4h3a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-3M2 8h2M2 12h2M2 16h2"></path>
+        <rect x="14" y="8" width="6" height="4" rx="1"></rect>
+      </svg>
+    );
+
+    const ArmorIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"></path>
+        <path d="M12 8v8M8 10l4 2 4-2"></path>
+      </svg>
+    );
+
+    const VisionIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"></circle>
+        <circle cx="12" cy="12" r="6"></circle>
+        <circle cx="12" cy="12" r="2"></circle>
+        <path d="M2 12h3M19 12h3M12 2v3M12 19v3"></path>
+      </svg>
+    );
+
+    const HeadIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+      </svg>
+    );
+
+    const HandyIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+      </svg>
+    );
+
+    const BootsIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M6 3v6l-3 4v5a3 3 0 0 0 3 3h2"></path>
+        <path d="M14 3v6l3 4v5a3 3 0 0 1-3 3h-2"></path>
+        <path d="M6 9h8M6 15h8"></path>
+      </svg>
+    );
+
+    const slotIcons = {
+      rifle: RifleIcon,
+      armor: ArmorIcon,
+      vision: VisionIcon,
+      head: HeadIcon,
+      handy: HandyIcon,
+      boots: BootsIcon
+    };
+
+    // ユーティリティ関数
+    const formatNumber = (num) => {
+      if (num === 0) return '0';
+      const absNum = Math.abs(num);
+      const sign = num < 0 ? '-' : '';
+      
+      if (absNum < 1000) return sign + absNum.toFixed(2);
+      
+      const units = ['', 'k', 'M', 'B', 'T', 'aa', 'bb', 'cc', 'dd', 'ee', 'ff', 'gg', 'hh', 'ii', 'jj', 'kk', 'll', 'mm', 'nn', 'oo', 'pp', 'qq', 'rr', 'ss', 'tt', 'uu', 'vv', 'ww', 'xx', 'yy', 'zz'];
+      const tier = Math.floor(Math.log10(absNum) / 3);
+      
+      if (tier <= units.length - 1) {
+        const scaled = absNum / Math.pow(1000, tier);
+        return sign + scaled.toFixed(4 - Math.floor(Math.log10(scaled)) - 1) + units[tier];
+      }
+      
+      return sign + absNum.toExponential(3);
+    };
+
+    // データ定義
+    const soldierData = {
+      103: { durability: 23.1, power: 2.89 },
+      102: { durability: 21.3, power: 2.66 },
+      101: { durability: 19.7, power: 2.45 },
+      100: { durability: 18.2, power: 2.33 },
+      83: { durability: 3.8, power: 0.989 },
+      82: { durability: 3.5, power: 0.88 },
+      81: { durability: 3, power: 0.75 },
+      80: { durability: 2.6, power: 0.65 }
+    };
+
+    const exclusiveMultipliers = { 0: 1.0, 3: 1.1, 5: 1.21, 7: 1.34 };
+
+    const heroData = {
+      'ペトラ': {
+        attackBuff: (ex) => 100 * exclusiveMultipliers[ex],
+        magneticBoost: (ex) => ex >= 7 ? 120 : 70,
+        asRate: 37,
+        asDamage: (ex) => 50 * exclusiveMultipliers[ex],
+        asBullets: (ex) => ex >= 5 ? 5 : 4,
+        asExtraEffect: (ex, hasCombo) => hasCombo ? { damage: 50, bullets: (ex >= 5 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null
+      },
+      'ミヤ': {
+        shieldBuff: (ex) => 68 * exclusiveMultipliers[ex],
+        asRate: 35,
+        asDamage: (ex) => 60 * exclusiveMultipliers[ex],
+        asBullets: 4,
+        psMagneticDamage: 40,
+        psMagneticBullets: (ex) => {
+          if (ex >= 7) return 4.5;
+          if (ex >= 5) return 3.5;
+          return 2.5;
+        }
+      },
+      'ルネ': {
+        ironWallValue: (ex) => (ex >= 7 ? 50 : 40) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
+        asRate: 33,
+        asDamage: (ex) => 150 * exclusiveMultipliers[ex],
+        asBullets: (ex) => ex >= 5 ? 4 : 3,
+        magneticBulletsBonus: (ex) => ex >= 7 ? 1.0 : 0.5
+      },
+      'カトレア': { name: '未実装' },
+      'シャーリー': { name: '未実装' },
+      'ミーチェ': { name: '未実装' },
+      'ノーラ': { name: '未実装' },
+      'ソフィ': { name: '未実装' },
+      'ミーク': { name: '未実装' },
+      'レイチェル': { name: '未実装' },
+      'コレット': { name: '未実装' },
+      'アイリス': { name: '未実装' },
+      'リヴィア': { name: '未実装' },
+      'ルチル': { name: '未実装' },
+      'ノルシュ': { name: '未実装' },
+      'ギャビー': { name: '未実装' },
+      'ビスコット': { name: '未実装' },
+      'フローリア': { name: '未実装' }
+    };
+
+    const presets = {
+      1: ['ペトラ', 'ミヤ', 'ルネ'],
+      2: ['カトレア', 'シャーリー', 'ミーチェ'],
+      3: ['ノーラ', 'ソフィ', 'ミーク'],
+      4: ['レイチェル', 'コレット', 'アイリス'],
+      5: ['リヴィア', 'ルチル', 'ノルシュ'],
+      6: ['ギャビー', 'ビスコット', 'フローリア']
+    };
+
+    const titanEffects = {
+      rifle: {
+        effects: [
+          { name: '戦場洞察', desc: 'ダメ増バフ加算', levels: [10, 15, 20, 25, 30, 35, 40] },
+          { name: '衝撃', desc: '衰弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '灼熱', desc: '燃焼付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '磁場', desc: '磁気付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '砲撃の嵐', desc: '攻撃強化の強化', levels: [4, 7, 11, 15, 19, 23, 30] },
+          { name: '全軍突撃', desc: 'R1のみ追撃２回発動', levels: [15, 18, 22, 27, 33, 40, 50] }
+        ]
+      },
+      armor: {
+        effects: [
+          { name: '補足不能', desc: 'ダメ減バフ加算', levels: [10, 15, 20, 25, 30, 35, 40] },
+          { name: '振動', desc: '衰弱強化', levels: [15, 22, 30] },
+          { name: '点火', desc: '燃焼強化', levels: [15, 22, 30] },
+          { name: '着磁', desc: '磁気強化', levels: [15, 22, 30] },
+          { name: '重撃', desc: '脆弱強化', levels: [15, 22, 30] },
+          { name: '鋼の奔流', desc: '開戦シールドの強化', levels: [4, 7, 11, 15, 19, 23, 30] },
+          { name: '破壊不能', desc: '鉄壁１ラウンド追加', levels: [15, 18, 22, 27, 33, 40, 50] }
+        ]
+      },
+      vision: {
+        effects: [
+          { name: '戦場洞察', desc: 'ダメ増バフ加算', levels: [10, 15, 20, 25, 30, 35, 40] },
+          { name: '衝撃', desc: '衰弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '灼熱', desc: '燃焼付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '磁場', desc: '磁気付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2] }
+        ]
+      },
+      head: {
+        effects: [
+          { name: '補足不能', desc: 'ダメ減バフ加算', levels: [10, 15, 20, 25, 30, 35, 40] },
+          { name: '振動', desc: '衰弱強化', levels: [15, 22, 30] },
+          { name: '点火', desc: '燃焼強化', levels: [15, 22, 30] },
+          { name: '着磁', desc: '磁気強化', levels: [15, 22, 30] },
+          { name: '重撃', desc: '脆弱強化', levels: [15, 22, 30] }
+        ]
+      },
+      handy: {
+        effects: [
+          { name: '戦場洞察', desc: 'ダメ増バフ加算', levels: [10, 15, 20, 25, 30, 35, 40] },
+          { name: '衝撃', desc: '衰弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '灼熱', desc: '燃焼付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '磁場', desc: '磁気付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2] }
+        ]
+      },
+      boots: {
+        effects: [
+          { name: '補足不能', desc: 'ダメ減バフ加算', levels: [10, 15, 20, 25, 30, 35, 40] },
+          { name: '振動', desc: '衰弱強化', levels: [15, 22, 30] },
+          { name: '点火', desc: '燃焼強化', levels: [15, 22, 30] },
+          { name: '着磁', desc: '磁気強化', levels: [15, 22, 30] },
+          { name: '重撃', desc: '脆弱強化', levels: [15, 22, 30] }
+        ]
+      }
+    };
+
+    const slotNames = ['rifle', 'armor', 'vision', 'head', 'handy', 'boots'];
+    const slotDisplayNames = ['ライフル', 'アーマー', '視野', 'ヘッド', 'ハンディ', 'ブーツ'];
+
+    function GameCalculator() {
+      const [buffs, setBuffs] = useState({
+        troops: 200,
+        soldierLv: 103,
+        life: 3000,
+        attack: 3000,
+        damageIncrease: 400,
+        damageReduction: 400,
+        defense: 140,
+        typeAdvantage: 120,
+        baseShield: 28,
+        silenceCount: 0,
+        enemyIronWall: '専用5',
+        powerDiff: 1.0
+      });
+
+      const [compatibility, setCompatibility] = useState('同兵種');
+      const [titanEnabled, setTitanEnabled] = useState(true);
+
+      const [heroes, setHeroes] = useState([
+        { name: 'ペトラ', exclusiveLv: 0 },
+        { name: 'ミヤ', exclusiveLv: 0 },
+        { name: 'ルネ', exclusiveLv: 0 }
+      ]);
+
+      const [titanEquip, setTitanEquip] = useState(
+        heroes.map(() => slotNames.map(() => ({ effect: '', level: 1 })))
+      );
+
+      const updateBuff = (key, value) => {
+        setBuffs(prev => ({ ...prev, [key]: parseFloat(value) || value }));
+      };
+
+      const selectPreset = (presetNum) => {
+        const newHeroes = presets[presetNum].map(name => ({ name, exclusiveLv: 0 }));
+        setHeroes(newHeroes);
+        setTitanEquip(newHeroes.map(() => slotNames.map(() => ({ effect: '', level: 1 }))));
+      };
+
+      const updateHero = (index, field, value) => {
+        setHeroes(prev => {
+          const newHeroes = [...prev];
+          newHeroes[index] = { ...newHeroes[index], [field]: value };
+          return newHeroes;
+        });
+      };
+
+      const updateTitan = (heroIndex, slotIndex, field, value) => {
+        setTitanEquip(prev => {
+          const newEquip = [...prev];
+          newEquip[heroIndex] = [...newEquip[heroIndex]];
+          newEquip[heroIndex][slotIndex] = {
+            ...newEquip[heroIndex][slotIndex],
+            [field]: value
+          };
+          return newEquip;
+        });
+      };
+
+      // 計算処理
+      const calculations = useMemo(() => {
+        const soldier = soldierData[buffs.soldierLv];
+        
+        // バフ相性計算
+        const compatDurability = (buffs.life + 100) / 100 * (buffs.damageReduction + 100) / 100 * (buffs.defense + 100) / 100;
+        
+        let compatPower = (buffs.attack + 100) / 100 * (buffs.damageIncrease + 100) / 100;
+        if (compatibility === '有利') {
+          compatPower = (buffs.attack + 100 + buffs.typeAdvantage) / 100 * (buffs.damageIncrease + 100) / 100;
+        } else if (compatibility === '不利') {
+          compatPower = compatPower / (1 + buffs.typeAdvantage / 100);
+        }
+        
+        const compatStrength = compatPower * compatDurability;
+        const compatTroopDurability = compatDurability * buffs.troops;
+        const compatTroopPower = compatPower * buffs.troops;
+        const compatTroopStrength = compatTroopDurability * compatTroopPower;
+        const compatTroopSoldierDurability = compatTroopDurability * soldier.durability;
+        const compatTroopSoldierPower = compatTroopPower * soldier.power;
+        const compatTroopSoldierStrength = compatTroopSoldierDurability * compatTroopSoldierPower;
+
+        // タイタン効果の計算（ON/OFF両方）
+        const calculateHeroStats = (useTitan) => {
+          let totalAttackBuff = 0;
+          let totalShieldBuff = buffs.baseShield;
+          let totalASDamage = 0;
+          let totalPSDamage = 115;
+          let maxIronWall = 0;
+          let maxIronWallExLv = 0;
+          let hasIronWall = false;
+          let totalInsightValue = 0;
+          let totalElusivenessValue = 0;
+
+          const artilleryBoosts = heroes.map((hero, i) => {
+            if (!useTitan) return 0;
+            let boost = 0;
+            titanEquip[i].forEach((equip, slotIdx) => {
+              if (equip.effect === '砲撃の嵐') {
+                const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '砲撃の嵐');
+                boost += effect.levels[equip.level - 1];
+              }
+            });
+            return boost;
+          });
+
+          const steelBoosts = heroes.map((hero, i) => {
+            if (!useTitan) return 0;
+            let boost = 0;
+            titanEquip[i].forEach((equip, slotIdx) => {
+              if (equip.effect === '鋼の奔流') {
+                const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '鋼の奔流');
+                boost += effect.levels[equip.level - 1];
+              }
+            });
+            return boost;
+          });
+
+          // グローバル磁気効果強化（全英雄の磁気に適用）
+          let globalMagneticBoost = 0;
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (data && data.magneticBoost) {
+              globalMagneticBoost += data.magneticBoost(hero.exclusiveLv);
+            }
+          });
+
+          // ローカル磁気効果強化（装備した英雄のみに適用）
+          const localMagneticBoosts = heroes.map((hero, i) => {
+            let boost = 0;
+            if (useTitan) {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '着磁' && ['armor', 'head', 'boots'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '着磁');
+                  boost += effect.levels[equip.level - 1];
+                }
+              });
+            }
+            return boost;
+          });
+
+          // 戦場洞察と補足不能の合計値を計算
+          if (useTitan) {
+            heroes.forEach((hero, i) => {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '戦場洞察') {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '戦場洞察');
+                  totalInsightValue += effect.levels[equip.level - 1];
+                }
+                if (equip.effect === '補足不能') {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '補足不能');
+                  totalElusivenessValue += effect.levels[equip.level - 1];
+                }
+              });
+            });
+          }
+
+          let runeMagneticBonus = 0;
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (hero.name === 'ルネ' && data && data.magneticBulletsBonus) {
+              runeMagneticBonus = data.magneticBulletsBonus(hero.exclusiveLv);
+            }
+          });
+
+          const hasCombo = heroes.some(h => h.name === 'ペトラ') && heroes.some(h => h.name === 'ミヤ');
+
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装') return;
+
+            const exLv = hero.exclusiveLv;
+            
+            if (data.attackBuff) {
+              const attackBoost = data.attackBuff(exLv);
+              totalAttackBuff += attackBoost * (100 + artilleryBoosts[i]) / 100;
+            }
+
+            if (data.shieldBuff) {
+              const shieldBoost = data.shieldBuff(exLv);
+              totalShieldBuff += shieldBoost * (100 + steelBoosts[i]) / 100;
+            }
+
+            if (data.ironWallValue) {
+              hasIronWall = true;
+              const ironValue = data.ironWallValue(exLv);
+              if (ironValue > maxIronWall) {
+                maxIronWall = ironValue;
+                maxIronWallExLv = exLv;
+              }
+            }
+
+            if (data.asRate && data.asDamage && data.asBullets) {
+              const actualRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
+              const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+              const damage = data.asDamage(exLv);
+              totalASDamage += actualRate * damage * bullets;
+
+              if (hero.name === 'ペトラ' && data.asExtraEffect) {
+                const extra = data.asExtraEffect(exLv, hasCombo);
+                if (extra) {
+                  // ルネボーナスを適用した弾数係数
+                  const bulletCoefficient = 1.5 + runeMagneticBonus;
+                  const adjustedBullets = (exLv >= 5 ? 5 : 4) * 0.5 * bulletCoefficient;
+                  const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+                  totalASDamage += actualRate * extra.damage * adjustedBullets * magneticBoost / 100;
+                }
+              }
+            }
+
+            if (data.psMagneticDamage && data.psMagneticBullets) {
+              const bullets = typeof data.psMagneticBullets === 'function' ? 
+                data.psMagneticBullets(exLv) + runeMagneticBonus : 
+                data.psMagneticBullets + runeMagneticBonus;
+              const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+              totalPSDamage += data.psMagneticDamage * bullets * magneticBoost / 100;
+            }
+
+            // 磁場（磁気付与）効果の計算
+            if (useTitan) {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '磁場' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
+                  const magneticValue = effect.levels[equip.level - 1];
+                  const magneticCount = effect.counts[equip.level - 1];
+                  const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+                  totalPSDamage += magneticValue * magneticCount * magneticBoost / 100;
+                }
+              });
+            }
+          });
+
+          let heroBasePower = (100 + totalAttackBuff) / 100;
+          let heroBaseDurability = (100 + totalShieldBuff) / 100;
+
+          // 戦場洞察と補足不能の効果を適用
+          if (useTitan) {
+            heroBasePower *= (buffs.damageIncrease + 100 + totalInsightValue) / (buffs.damageIncrease + 100);
+            heroBaseDurability *= (buffs.damageReduction + 100 + totalElusivenessValue) / (buffs.damageReduction + 100);
+          }
+
+          let ironWallCorrection = 1.0;
+          if (hasIronWall) {
+            if (maxIronWallExLv < 5) {
+              ironWallCorrection = 1.21;
+            } else if (maxIronWallExLv === 5) {
+              ironWallCorrection = 1.516;
+            } else {
+              ironWallCorrection = 1.8;
+            }
+          }
+
+          const passiveDamage = totalPSDamage;
+          const heroPower = heroBasePower * (passiveDamage + totalASDamage) / 100;
+          const heroDurability = heroBaseDurability * ironWallCorrection * 1.0;
+          const heroStrength = heroPower * heroDurability;
+
+          return {
+            heroBasePower,
+            heroBaseDurability,
+            totalASDamage,
+            passiveDamage,
+            ironWallCorrection,
+            heroPower,
+            heroDurability,
+            heroStrength
+          };
+        };
+
+        const withTitan = calculateHeroStats(titanEnabled);
+        const withoutTitan = calculateHeroStats(false);
+
+        const calcIncrease = (withVal, withoutVal) => {
+          if (withoutVal === 0) return 0;
+          return ((withVal - withoutVal) / withoutVal * 100).toFixed(1);
+        };
+
+        return {
+          compatDurability,
+          compatPower,
+          compatStrength,
+          compatTroopDurability,
+          compatTroopPower,
+          compatTroopStrength,
+          compatTroopSoldierDurability,
+          compatTroopSoldierPower,
+          compatTroopSoldierStrength,
+          ...withTitan,
+          increases: {
+            heroBasePower: calcIncrease(withTitan.heroBasePower, withoutTitan.heroBasePower),
+            heroBaseDurability: calcIncrease(withTitan.heroBaseDurability, withoutTitan.heroBaseDurability),
+            totalASDamage: calcIncrease(withTitan.totalASDamage, withoutTitan.totalASDamage),
+            passiveDamage: calcIncrease(withTitan.passiveDamage, withoutTitan.passiveDamage),
+            heroPower: calcIncrease(withTitan.heroPower, withoutTitan.heroPower),
+            heroDurability: calcIncrease(withTitan.heroDurability, withoutTitan.heroDurability),
+            heroStrength: calcIncrease(withTitan.heroStrength, withoutTitan.heroStrength)
+          }
+        };
+      }, [buffs, compatibility, heroes, titanEquip, titanEnabled]);
+
+      return (
+        <div className="container">
+          {/* ヘッダー */}
+          <div className="header">
+            <h1>
+              <CalculatorIcon />
+              戦闘シミュレーター
+            </h1>
+            <p>Combat Analysis & Calculation Tool</p>
+          </div>
+
+          <div className="grid">
+            {/* 左カラム：バフ設定 */}
+            <div className="space-y-6">
+              <div className="card">
+                <h2><ShieldIcon /> バフ設定</h2>
+                <div className="space-y-3">
+                  <div className="form-group">
+                    <label className="form-label">出撃数</label>
+                    <input
+                      type="number"
+                      value={buffs.troops}
+                      onChange={(e) => updateBuff('troops', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">兵士Lv</label>
+                    <select
+                      value={buffs.soldierLv}
+                      onChange={(e) => updateBuff('soldierLv', e.target.value)}
+                      className="form-select"
+                    >
+                      {[103, 102, 101, 100, 83, 82, 81, 80].map(lv => (
+                        <option key={lv} value={lv}>Lv {lv}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {[
+                    { key: 'life', label: '生命' },
+                    { key: 'attack', label: '攻撃' },
+                    { key: 'damageIncrease', label: 'ダメ増' },
+                    { key: 'damageReduction', label: 'ダメ減' },
+                    { key: 'defense', label: '防御' }
+                  ].map(({ key, label }) => (
+                    <div key={key} className="form-group">
+                      <label className="form-label">{label} (%)</label>
+                      <input
+                        type="number"
+                        value={buffs[key]}
+                        onChange={(e) => updateBuff(key, e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                  ))}
+
+                  <div className="form-group">
+                    <label className="form-label">兵種相性設定 (%)</label>
+                    <input
+                      type="number"
+                      value={buffs.typeAdvantage}
+                      onChange={(e) => updateBuff('typeAdvantage', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">基礎開戦シールド</label>
+                    <select
+                      value={buffs.baseShield}
+                      onChange={(e) => updateBuff('baseShield', e.target.value)}
+                      className="form-select"
+                    >
+                      {[5, 18, 23, 28, 40, 45].map(val => (
+                        <option key={val} value={val}>{val}</option>
+                      ))}
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">敵から受ける沈黙の数</label>
+                    <input
+                      type="number"
+                      value={buffs.silenceCount}
+                      onChange={(e) => updateBuff('silenceCount', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">敵の鉄壁条件</label>
+                    <select
+                      value={buffs.enemyIronWall}
+                      onChange={(e) => updateBuff('enemyIronWall', e.target.value)}
+                      className="form-select"
+                    >
+                      <option value="鉄壁無し">鉄壁無し</option>
+                      <option value="専用なし">専用なし</option>
+                      <option value="専用5">専用5</option>
+                      <option value="専用7">専用7</option>
+                      <option value="専用7＋Lv7破壊不能">専用7＋Lv7破壊不能</option>
+                    </select>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">想定戦力差（自身の何倍）</label>
+                    <input
+                      type="number"
+                      step="0.1"
+                      value={buffs.powerDiff}
+                      onChange={(e) => updateBuff('powerDiff', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <h2><SwordsIcon /> 相性設定</h2>
+                <div className="compatibility-buttons">
+                  {['同兵種', '有利', '不利'].map(comp => (
+                    <button
+                      key={comp}
+                      onClick={() => setCompatibility(comp)}
+                      className={`btn ${compatibility === comp ? 'btn-primary active' : 'btn-secondary'}`}
+                    >
+                      {comp}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 中央カラム：英雄設定 */}
+            <div className="space-y-6">
+              <div className="card">
+                <h2><UsersIcon /> プリセット選択</h2>
+                <div className="preset-grid">
+                  {Object.entries(presets).map(([num, names]) => (
+                    <button
+                      key={num}
+                      onClick={() => selectPreset(parseInt(num))}
+                      className="preset-btn"
+                    >
+                      <span className="preset-label">プリセット{num}</span>
+                      <span className="preset-heroes">{names.join('・')}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card">
+                <h2>英雄設定</h2>
+                <div className="space-y-4">
+                  {heroes.map((hero, i) => (
+                    <div key={i} className="hero-card">
+                      <div className="hero-title">英雄 {i + 1}</div>
+                      <div className="hero-grid">
+                        <div className="form-group">
+                          <label className="form-label">名前</label>
+                          <select
+                            value={hero.name}
+                            onChange={(e) => updateHero(i, 'name', e.target.value)}
+                            className="form-select"
+                          >
+                            {Object.keys(heroData).map(name => (
+                              <option key={name} value={name}>{name}</option>
+                            ))}
+                          </select>
+                        </div>
+                        <div className="form-group">
+                          <label className="form-label">専用Lv</label>
+                          <select
+                            value={hero.exclusiveLv}
+                            onChange={(e) => updateHero(i, 'exclusiveLv', parseInt(e.target.value))}
+                            className="form-select"
+                          >
+                            <option value={0}>専用なし</option>
+                            <option value={3}>専用3</option>
+                            <option value={5}>専用5</option>
+                            <option value={7}>専用7</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="card">
+                <h2><SettingsIcon /> タイタン装備</h2>
+                
+                <div className="toggle-container">
+                  <div 
+                    className={`toggle-switch ${titanEnabled ? 'active' : ''}`}
+                    onClick={() => setTitanEnabled(!titanEnabled)}
+                  >
+                    <div className="toggle-slider"></div>
+                  </div>
+                  <span className="toggle-label">
+                    タイタン効果: {titanEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+
+                <div className="space-y-6">
+                  {heroes.map((hero, heroIdx) => (
+                    <div key={heroIdx} className="titan-section">
+                      <div className="titan-hero-name">{hero.name}</div>
+                      <div className="space-y-3">
+                        {slotNames.map((slotName, slotIdx) => {
+                          const Icon = slotIcons[slotName];
+                          return (
+                            <div key={slotIdx} className="titan-slot">
+                              <div className="titan-slot-header">
+                                <Icon />
+                                <span>{slotDisplayNames[slotIdx]}</span>
+                              </div>
+                              <div className="titan-slot-grid">
+                                <select
+                                  value={titanEquip[heroIdx][slotIdx].effect}
+                                  onChange={(e) => updateTitan(heroIdx, slotIdx, 'effect', e.target.value)}
+                                  className="form-select"
+                                  style={{ fontSize: '0.875rem' }}
+                                >
+                                  <option value="">選択なし</option>
+                                  {titanEffects[slotName].effects.map((eff, i) => (
+                                    <option key={i} value={eff.name}>
+                                      {eff.name} ({eff.desc})
+                                    </option>
+                                  ))}
+                                </select>
+                                {titanEquip[heroIdx][slotIdx].effect && (
+                                  <select
+                                    value={titanEquip[heroIdx][slotIdx].level}
+                                    onChange={(e) => updateTitan(heroIdx, slotIdx, 'level', parseInt(e.target.value))}
+                                    className="form-select"
+                                    style={{ fontSize: '0.875rem' }}
+                                  >
+                                    {(() => {
+                                      const effect = titanEffects[slotName].effects.find(
+                                        e => e.name === titanEquip[heroIdx][slotIdx].effect
+                                      );
+                                      const maxLv = effect ? effect.levels.length : 7;
+                                      return Array.from({ length: maxLv }, (_, i) => (
+                                        <option key={i} value={i + 1}>Lv {i + 1}</option>
+                                      ));
+                                    })()}
+                                  </select>
+                                )}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+
+            {/* 右カラム：計算結果 */}
+            <div className="space-y-6">
+              <div className="card">
+                <h2 style={{ color: '#86efac' }}>バフ相性計算</h2>
+                <div className="space-y-2">
+                  <div className="result-box">
+                    <div className="result-label">バフ相性耐久</div>
+                    <div className="result-value value-green">{formatNumber(calculations.compatDurability)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性火力</div>
+                    <div className="result-value value-red">{formatNumber(calculations.compatPower)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性強さ値</div>
+                    <div className="result-value value-yellow">{formatNumber(calculations.compatStrength)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性出撃耐久</div>
+                    <div className="result-value value-green">{formatNumber(calculations.compatTroopDurability)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性出撃火力</div>
+                    <div className="result-value value-red">{formatNumber(calculations.compatTroopPower)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性出撃強さ値</div>
+                    <div className="result-value value-yellow">{formatNumber(calculations.compatTroopStrength)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性出撃兵士耐久</div>
+                    <div className="result-value value-green">{formatNumber(calculations.compatTroopSoldierDurability)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性出撃兵士火力</div>
+                    <div className="result-value value-red">{formatNumber(calculations.compatTroopSoldierPower)}</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">バフ相性出撃兵士強さ値</div>
+                    <div className="result-value value-purple">{formatNumber(calculations.compatTroopSoldierStrength)}</div>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <h2 style={{ color: '#c084fc' }}>英雄計算</h2>
+                <div className="space-y-2">
+                  <div className="result-box">
+                    <div className="result-label">
+                      <span>基礎英雄火力</span>
+                      {titanEnabled && calculations.increases.heroBasePower > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroBasePower}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-red">{formatNumber(calculations.heroBasePower)}倍</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">
+                      <span>基礎英雄耐久</span>
+                      {titanEnabled && calculations.increases.heroBaseDurability > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroBaseDurability}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-green">{formatNumber(calculations.heroBaseDurability)}倍</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">
+                      <span>アクティブスキル総ダメージ</span>
+                      {titanEnabled && calculations.increases.totalASDamage > 0 && (
+                        <span className="result-increase">+{calculations.increases.totalASDamage}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-yellow">{formatNumber(calculations.totalASDamage)}%</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">
+                      <span>パッシブダメージ</span>
+                      {titanEnabled && calculations.increases.passiveDamage > 0 && (
+                        <span className="result-increase">+{calculations.increases.passiveDamage}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-orange">{formatNumber(calculations.passiveDamage)}%</div>
+                  </div>
+                  <div className="result-box">
+                    <div className="result-label">鉄壁耐久補正</div>
+                    <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
+                  </div>
+                  <div className="result-box result-highlight">
+                    <div className="result-label">
+                      <span>英雄火力</span>
+                      {titanEnabled && calculations.increases.heroPower > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroPower}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-red" style={{ fontSize: '1.5rem' }}>
+                      {formatNumber(calculations.heroPower)}倍
+                    </div>
+                  </div>
+                  <div className="result-box result-highlight-green">
+                    <div className="result-label">
+                      <span>英雄耐久</span>
+                      {titanEnabled && calculations.increases.heroDurability > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroDurability}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-green" style={{ fontSize: '1.5rem' }}>
+                      {formatNumber(calculations.heroDurability)}倍
+                    </div>
+                  </div>
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(91, 33, 182, 0.3), rgba(109, 40, 217, 0.3))' }}>
+                    <div className="result-label">
+                      <span>英雄強さ値</span>
+                      {titanEnabled && calculations.increases.heroStrength > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroStrength}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-purple" style={{ fontSize: '1.5rem' }}>
+                      {formatNumber(calculations.heroStrength)}
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<GameCalculator />, document.getElementById('root'));
+  </script>
+</body>
+</html>
