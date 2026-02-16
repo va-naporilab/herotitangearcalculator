@@ -3,7 +3,7 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
-  <title>英雄タイタン評価ツール for Vivid Army</title>
+  <title>英雄タイタン強さ評価ツール v2.0 Phase 3</title></title>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
   <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
   <script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
@@ -58,6 +58,32 @@
       color: #bfdbfe;
       margin-top: 0.5rem;
       font-size: 1.125rem;
+    }
+
+    /* バージョンバッジ */
+    .version-badge {
+      display: inline-block;
+      background: rgba(34, 197, 94, 0.2);
+      color: #86efac;
+      padding: 0.25rem 0.75rem;
+      border-radius: 1rem;
+      font-size: 0.875rem;
+      margin-left: 0.5rem;
+      border: 1px solid #86efac;
+    }
+
+    /* 警告表示 */
+    .warning {
+      background: rgba(239, 68, 68, 0.2);
+      border: 1px solid #ef4444;
+      padding: 1rem;
+      border-radius: 0.5rem;
+      margin-bottom: 1rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+      color: #fca5a5;
+      font-weight: 600;
     }
 
     /* グリッドレイアウト */
@@ -272,6 +298,35 @@
       font-weight: 700;
       color: #93c5fd;
       margin-bottom: 0.5rem;
+      display: flex;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    /* 兵種バッジ */
+    .hero-type-badge {
+      font-size: 0.75rem;
+      padding: 0.125rem 0.5rem;
+      border-radius: 0.25rem;
+      font-weight: 600;
+    }
+
+    .type-land { 
+      background: rgba(168, 85, 247, 0.2); 
+      color: #c084fc; 
+      border: 1px solid #c084fc; 
+    }
+
+    .type-sea { 
+      background: rgba(59, 130, 246, 0.2); 
+      color: #60a5fa; 
+      border: 1px solid #60a5fa; 
+    }
+
+    .type-air { 
+      background: rgba(34, 197, 94, 0.2); 
+      color: #86efac; 
+      border: 1px solid #86efac; 
     }
 
     .hero-grid {
@@ -370,6 +425,17 @@
       background: linear-gradient(to right, rgba(20, 83, 45, 0.3), rgba(21, 128, 61, 0.3));
     }
 
+    /* 結果表示の2列グリッド */
+    .result-grid-2 {
+      display: grid;
+      grid-template-columns: repeat(2, 1fr);
+      gap: 0.5rem;
+    }
+
+    .result-grid-2 .result-box {
+      margin-bottom: 0;
+    }
+
     /* アイコン */
     .icon {
       display: inline-block;
@@ -447,6 +513,14 @@
       </svg>
     );
 
+    const AlertIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+        <line x1="12" y1="9" x2="12" y2="13"></line>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    );
+
     // タイタン装備アイコン
     const RifleIcon = () => (
       <svg className="titan-slot-icon" viewBox="0 0 24 24">
@@ -508,17 +582,26 @@
       const absNum = Math.abs(num);
       const sign = num < 0 ? '-' : '';
       
-      if (absNum < 1000) return sign + absNum.toFixed(2);
+      // 有効数字4桁
+      const sigFigs = 4;
+      
+      if (absNum < 1000) {
+        const digits = Math.floor(Math.log10(absNum)) + 1;
+        const decimals = Math.max(0, sigFigs - digits);
+        return sign + absNum.toFixed(decimals);
+      }
       
       const units = ['', 'k', 'M', 'B', 'T', 'aa', 'bb', 'cc', 'dd', 'ee', 'ff', 'gg', 'hh', 'ii', 'jj', 'kk', 'll', 'mm', 'nn', 'oo', 'pp', 'qq', 'rr', 'ss', 'tt', 'uu', 'vv', 'ww', 'xx', 'yy', 'zz'];
       const tier = Math.floor(Math.log10(absNum) / 3);
       
       if (tier <= units.length - 1) {
         const scaled = absNum / Math.pow(1000, tier);
-        return sign + scaled.toFixed(4 - Math.floor(Math.log10(scaled)) - 1) + units[tier];
+        const digits = Math.floor(Math.log10(scaled)) + 1;
+        const decimals = Math.max(0, sigFigs - digits);
+        return sign + scaled.toFixed(decimals) + units[tier];
       }
       
-      return sign + absNum.toExponential(3);
+      return sign + absNum.toExponential(sigFigs - 1);
     };
 
     // データ定義
@@ -535,8 +618,73 @@
 
     const exclusiveMultipliers = { 0: 1.0, 3: 1.1, 5: 1.21, 7: 1.34 };
 
+    // 衰弱率テーブル（付与数1個用）
+    const debuffRate1 = {
+      18: { noRush: 13.25, withRush: 16.48 },
+      20: { noRush: 14.58, withRush: 18.13 },
+      22: { noRush: 15.89, withRush: 19.75 },
+      24: { noRush: 17.17, withRush: 21.34 },
+      26: { noRush: 18.42, withRush: 22.91 },
+      28: { noRush: 19.65, withRush: 24.44 },
+      30: { noRush: 20.81, withRush: 25.86 },
+      31: { noRush: 21.44, withRush: 26.65 },
+      32: { noRush: 22.06, withRush: 27.42 },
+      34: { noRush: 23.28, withRush: 28.96 },
+      35: { noRush: 23.88, withRush: 29.74 },
+      36: { noRush: 24.48, withRush: 30.49 },
+      37: { noRush: 25.08, withRush: 31.25 },
+      38: { noRush: 25.67, withRush: 32.00 },
+      39: { noRush: 26.26, withRush: 32.74 },
+      40: { noRush: 26.84, withRush: 33.48 },
+      41: { noRush: 27.42, withRush: 34.22 },
+      42: { noRush: 28.00, withRush: 34.96 }
+    };
+
+    // 衰弱率テーブル（付与数2個用）
+    const debuffRate2 = {
+      18: { noRush: 24.81, withRush: 30.06 },
+      20: { noRush: 27.13, withRush: 32.88 },
+      22: { noRush: 29.38, withRush: 35.61 },
+      24: { noRush: 31.55, withRush: 38.24 },
+      26: { noRush: 33.64, withRush: 40.77 },
+      28: { noRush: 35.65, withRush: 43.21 },
+      30: { noRush: 37.13, withRush: 45.03 },
+      31: { noRush: 38.08, withRush: 46.19 },
+      32: { noRush: 39.01, withRush: 47.34 },
+      34: { noRush: 40.83, withRush: 49.57 },
+      35: { noRush: 41.71, withRush: 50.66 },
+      36: { noRush: 42.59, withRush: 51.73 },
+      37: { noRush: 43.45, withRush: 52.78 },
+      38: { noRush: 44.29, withRush: 53.82 },
+      39: { noRush: 45.12, withRush: 54.84 },
+      40: { noRush: 45.94, withRush: 55.85 },
+      41: { noRush: 46.74, withRush: 56.84 },
+      42: { noRush: 47.53, withRush: 57.81 }
+    };
+
+    // 衰弱率を取得する関数
+    const getDebuffRate = (asRate, count, hasRush) => {
+      const ratePercent = Math.round(asRate * 100);
+      const table = count === 1 ? debuffRate1 : debuffRate2;
+      
+      // 最も近い発動率を探す（同距離の場合は高い方）
+      let closestRate = 18;
+      let minDiff = Math.abs(ratePercent - 18);
+      
+      for (const rate in table) {
+        const diff = Math.abs(ratePercent - parseInt(rate));
+        if (diff < minDiff || (diff === minDiff && parseInt(rate) > closestRate)) {
+          closestRate = parseInt(rate);
+          minDiff = diff;
+        }
+      }
+      
+      return (hasRush ? table[closestRate].withRush : table[closestRate].noRush) / 100;
+    };
+
     const heroData = {
       'ペトラ': {
+        type: '陸軍',
         attackBuff: (ex) => 100 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => ex >= 7 ? 120 : 70,
         asRate: 37,
@@ -545,18 +693,21 @@
         asExtraEffect: (ex, hasCombo) => hasCombo ? { damage: 50, bullets: (ex >= 5 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null
       },
       'ミヤ': {
+        type: '陸軍',
         shieldBuff: (ex) => 68 * exclusiveMultipliers[ex],
-        asRate: 35,
+        asRate: 34,
         asDamage: (ex) => 60 * exclusiveMultipliers[ex],
         asBullets: 4,
-        psMagneticDamage: 40,
+        psMagneticDamage: (ex) => ex >= 5 ? 60 : 40,
         psMagneticBullets: (ex) => {
-          if (ex >= 7) return 4.5;
-          if (ex >= 5) return 3.5;
-          return 2.5;
+          let base = 2.2;
+          if (ex >= 7) base += 2.3;
+          else if (ex >= 5) base += 1.3;
+          return base;
         }
       },
       'ルネ': {
+        type: '陸軍',
         ironWallValue: (ex) => (ex >= 7 ? 50 : 40) * exclusiveMultipliers[ex],
         ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
         asRate: 33,
@@ -564,21 +715,21 @@
         asBullets: (ex) => ex >= 5 ? 4 : 3,
         magneticBulletsBonus: (ex) => ex >= 7 ? 1.0 : 0.5
       },
-      'カトレア': { name: '未実装' },
-      'シャーリー': { name: '未実装' },
-      'ミーチェ': { name: '未実装' },
-      'ノーラ': { name: '未実装' },
-      'ソフィ': { name: '未実装' },
-      'ミーク': { name: '未実装' },
-      'レイチェル': { name: '未実装' },
-      'コレット': { name: '未実装' },
-      'アイリス': { name: '未実装' },
-      'リヴィア': { name: '未実装' },
-      'ルチル': { name: '未実装' },
-      'ノルシュ': { name: '未実装' },
-      'ギャビー': { name: '未実装' },
-      'ビスコット': { name: '未実装' },
-      'フローリア': { name: '未実装' }
+      'カトレア': { name: '未実装', type: '陸軍' },
+      'シャーリー': { name: '未実装', type: '陸軍' },
+      'ミーチェ': { name: '未実装', type: '陸軍' },
+      'ノーラ': { name: '未実装', type: '海軍' },
+      'ソフィ': { name: '未実装', type: '海軍' },
+      'ミーク': { name: '未実装', type: '海軍' },
+      'レイチェル': { name: '未実装', type: '海軍' },
+      'コレット': { name: '未実装', type: '海軍' },
+      'アイリス': { name: '未実装', type: '海軍' },
+      'リヴィア': { name: '未実装', type: '空軍' },
+      'ルチル': { name: '未実装', type: '空軍' },
+      'ノルシュ': { name: '未実装', type: '空軍' },
+      'ギャビー': { name: '未実装', type: '空軍' },
+      'ビスコット': { name: '未実装', type: '空軍' },
+      'フローリア': { name: '未実装', type: '空軍' }
     };
 
     const presets = {
@@ -597,7 +748,7 @@
           { name: '衝撃', desc: '衰弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
           { name: '灼熱', desc: '燃焼付与', levels: [15, 30, 30], counts: [1, 1, 2] },
           { name: '磁場', desc: '磁気付与', levels: [15, 30, 30], counts: [1, 1, 2] },
-          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
+          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2], lossCoefs: [0.98, 0.98, 0.95] },
           { name: '砲撃の嵐', desc: '攻撃強化の強化', levels: [4, 7, 11, 15, 19, 23, 30] },
           { name: '全軍突撃', desc: 'R1のみ追撃２回発動', levels: [15, 18, 22, 27, 33, 40, 50] }
         ]
@@ -619,7 +770,7 @@
           { name: '衝撃', desc: '衰弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
           { name: '灼熱', desc: '燃焼付与', levels: [15, 30, 30], counts: [1, 1, 2] },
           { name: '磁場', desc: '磁気付与', levels: [15, 30, 30], counts: [1, 1, 2] },
-          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2] }
+          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2], lossCoefs: [0.98, 0.98, 0.95] }
         ]
       },
       head: {
@@ -637,7 +788,7 @@
           { name: '衝撃', desc: '衰弱付与', levels: [15, 30, 30], counts: [1, 1, 2] },
           { name: '灼熱', desc: '燃焼付与', levels: [15, 30, 30], counts: [1, 1, 2] },
           { name: '磁場', desc: '磁気付与', levels: [15, 30, 30], counts: [1, 1, 2] },
-          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2] }
+          { name: '破凱', desc: '脆弱付与', levels: [15, 30, 30], counts: [1, 1, 2], lossCoefs: [0.98, 0.98, 0.95] }
         ]
       },
       boots: {
@@ -667,7 +818,8 @@
         baseShield: 28,
         silenceCount: 0,
         enemyIronWall: '専用5',
-        powerDiff: 1.0
+        powerDiff: 1.0,
+        enemyRushRatio: 0.0
       });
 
       const [compatibility, setCompatibility] = useState('同兵種');
@@ -715,6 +867,11 @@
 
       // 計算処理
       const calculations = useMemo(() => {
+        // 兵種の不一致チェック
+        const heroTypes = heroes.map(h => heroData[h.name]?.type).filter(t => t && t !== '汎用');
+        const uniqueTypes = [...new Set(heroTypes)];
+        const typeWarning = uniqueTypes.length > 1 ? '⚠️ 英雄の兵種が異なります' : '';
+
         const soldier = soldierData[buffs.soldierLv];
         
         // バフ相性計算
@@ -740,7 +897,37 @@
           let totalAttackBuff = 0;
           let totalShieldBuff = buffs.baseShield;
           let totalASDamage = 0;
-          let totalPSDamage = 115;
+          
+          // 直接ダメージ追跡（脆弱計算用）
+          let totalDirectDamage = 0;
+          let totalDirectBullets = 0;
+          
+          // AS弾数追跡（追撃火力比率計算用）
+          let totalASBullets = 0;
+          
+          // 通常攻撃の兵種別計算
+          const getBasicAttack = () => {
+            const types = heroes.map(h => heroData[h.name]?.type).filter(t => t && t !== '汎用');
+            const uniqueTypes = [...new Set(types)];
+            
+            // 海軍のみ、空軍のみ、海軍と汎用のみ、空軍と汎用のみ
+            if (uniqueTypes.length === 1 && (uniqueTypes[0] === '海軍' || uniqueTypes[0] === '空軍')) {
+              totalDirectBullets += 3;
+              return 40 * 3; // 120%
+            }
+            // 陸軍のみ、陸軍と汎用のみ
+            if (uniqueTypes.length === 1 && uniqueTypes[0] === '陸軍') {
+              totalDirectBullets += 1;
+              return 117 * 1; // 117%
+            }
+            // その他
+            totalDirectBullets += 2.3;
+            return 50 * 2.3; // 115%
+          };
+          
+          const basicAttackDamage = getBasicAttack();
+          totalDirectDamage += basicAttackDamage;
+          let totalPSDamage = basicAttackDamage;
           let maxIronWall = 0;
           let maxIronWallExLv = 0;
           let hasIronWall = false;
@@ -753,7 +940,9 @@
             titanEquip[i].forEach((equip, slotIdx) => {
               if (equip.effect === '砲撃の嵐') {
                 const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '砲撃の嵐');
-                boost += effect.levels[equip.level - 1];
+                if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                  boost += effect.levels[equip.level - 1];
+                }
               }
             });
             return boost;
@@ -765,7 +954,9 @@
             titanEquip[i].forEach((equip, slotIdx) => {
               if (equip.effect === '鋼の奔流') {
                 const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '鋼の奔流');
-                boost += effect.levels[equip.level - 1];
+                if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                  boost += effect.levels[equip.level - 1];
+                }
               }
             });
             return boost;
@@ -780,6 +971,15 @@
             }
           });
 
+          // グローバル燃焼効果強化（全英雄の燃焼に適用）
+          let globalBurningBoost = 0;
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (data && data.burningBoost) {
+              globalBurningBoost += data.burningBoost(hero.exclusiveLv);
+            }
+          });
+
           // ローカル磁気効果強化（装備した英雄のみに適用）
           const localMagneticBoosts = heroes.map((hero, i) => {
             let boost = 0;
@@ -787,7 +987,57 @@
               titanEquip[i].forEach((equip, slotIdx) => {
                 if (equip.effect === '着磁' && ['armor', 'head', 'boots'].includes(slotNames[slotIdx])) {
                   const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '着磁');
-                  boost += effect.levels[equip.level - 1];
+                  if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                    boost += effect.levels[equip.level - 1];
+                  }
+                }
+              });
+            }
+            return boost;
+          });
+
+          // ローカル燃焼効果強化（装備した英雄のみに適用）
+          const localBurningBoosts = heroes.map((hero, i) => {
+            let boost = 0;
+            if (useTitan) {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '点火' && ['armor', 'head', 'boots'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '点火');
+                  if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                    boost += effect.levels[equip.level - 1];
+                  }
+                }
+              });
+            }
+            return boost;
+          });
+
+          // ローカル衰弱効果強化（装備した英雄のみに適用）
+          const localWeakenBoosts = heroes.map((hero, i) => {
+            let boost = 0;
+            if (useTitan) {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '振動' && ['armor', 'head', 'boots'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '振動');
+                  if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                    boost += effect.levels[equip.level - 1];
+                  }
+                }
+              });
+            }
+            return boost;
+          });
+
+          // ローカル脆弱効果強化（装備した英雄のみに適用）
+          const localVulnerBoosts = heroes.map((hero, i) => {
+            let boost = 0;
+            if (useTitan) {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '重撃' && ['armor', 'head', 'boots'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '重撃');
+                  if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                    boost += effect.levels[equip.level - 1];
+                  }
                 }
               });
             }
@@ -800,11 +1050,15 @@
               titanEquip[i].forEach((equip, slotIdx) => {
                 if (equip.effect === '戦場洞察') {
                   const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '戦場洞察');
-                  totalInsightValue += effect.levels[equip.level - 1];
+                  if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                    totalInsightValue += effect.levels[equip.level - 1];
+                  }
                 }
                 if (equip.effect === '補足不能') {
                   const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '補足不能');
-                  totalElusivenessValue += effect.levels[equip.level - 1];
+                  if (effect && effect.levels && effect.levels[equip.level - 1] !== undefined) {
+                    totalElusivenessValue += effect.levels[equip.level - 1];
+                  }
                 }
               });
             });
@@ -849,7 +1103,13 @@
               const actualRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
               const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
               const damage = data.asDamage(exLv);
-              totalASDamage += actualRate * damage * bullets;
+              const asDamageAmount = actualRate * damage * bullets;
+              totalASDamage += asDamageAmount;
+              
+              // 直接ダメージとして追跡
+              totalDirectDamage += asDamageAmount;
+              totalDirectBullets += actualRate * bullets;
+              totalASBullets += actualRate * bullets;
 
               if (hero.name === 'ペトラ' && data.asExtraEffect) {
                 const extra = data.asExtraEffect(exLv, hasCombo);
@@ -858,7 +1118,9 @@
                   const bulletCoefficient = 1.5 + runeMagneticBonus;
                   const adjustedBullets = (exLv >= 5 ? 5 : 4) * 0.5 * bulletCoefficient;
                   const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-                  totalASDamage += actualRate * extra.damage * adjustedBullets * magneticBoost / 100;
+                  const extraDamage = actualRate * extra.damage * adjustedBullets * magneticBoost / 100;
+                  totalASDamage += extraDamage;
+                  // ペトラの追加磁気は磁気属性なので直接ダメージには含めない
                 }
               }
             }
@@ -867,23 +1129,237 @@
               const bullets = typeof data.psMagneticBullets === 'function' ? 
                 data.psMagneticBullets(exLv) + runeMagneticBonus : 
                 data.psMagneticBullets + runeMagneticBonus;
+              const damage = typeof data.psMagneticDamage === 'function' ?
+                data.psMagneticDamage(exLv) :
+                data.psMagneticDamage;
               const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-              totalPSDamage += data.psMagneticDamage * bullets * magneticBoost / 100;
-            }
-
-            // 磁場（磁気付与）効果の計算
-            if (useTitan) {
-              titanEquip[i].forEach((equip, slotIdx) => {
-                if (equip.effect === '磁場' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
-                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
-                  const magneticValue = effect.levels[equip.level - 1];
-                  const magneticCount = effect.counts[equip.level - 1];
-                  const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-                  totalPSDamage += magneticValue * magneticCount * magneticBoost / 100;
-                }
-              });
+              totalPSDamage += damage * bullets * magneticBoost / 100;
             }
           });
+
+          // 磁場（磁気付与）などの付与系効果はAS総ダメージに計上（ASトリガー）
+          // 衰弱効果の収集（耐久計算用）
+          const debuffEffects = [];
+          
+          if (useTitan) {
+            heroes.forEach((hero, i) => {
+              const data = heroData[hero.name];
+              if (!data || data.name === '未実装') return;
+
+              let asRate = 0;
+              if (data.asRate) {
+                asRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
+              }
+
+              // 全軍突撃の有無を確認
+              let hasRush = false;
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '全軍突撃' && slotNames[slotIdx] === 'rifle') {
+                  hasRush = true;
+                }
+              });
+
+              // 衝撃（衰弱付与）効果を収集
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '衝撃' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '衝撃');
+                  if (effect && effect.levels && effect.counts) {
+                    const weakenValue = effect.levels[equip.level - 1];
+                    const weakenCount = effect.counts[equip.level - 1];
+                    const weakenBoost = 100 + localWeakenBoosts[i];
+                    const debuffRate = getDebuffRate(asRate, weakenCount, hasRush);
+                    
+                    // 振動による強化を適用した衰弱値
+                    const enhancedValue = weakenValue * weakenBoost / 100;
+                    
+                    debuffEffects.push({
+                      value: enhancedValue,
+                      rate: debuffRate
+                    });
+                  }
+                }
+              });
+            });
+          }
+
+          // 衰弱耐久補正の計算（二項分布的な重複処理）
+          let debuffDurabilityCorrection = 1.0;
+          
+          if (debuffEffects.length > 0) {
+            // E[F] = Σ (∏(i∈S) Pi ∏(j∉S) (1-Pj) · 1/(1 + Σ(k∈S) Dk))
+            // すべての組み合わせ（2^n通り）を計算
+            const n = debuffEffects.length;
+            let expectedEnemyPower = 0;
+            
+            for (let mask = 0; mask < (1 << n); mask++) {
+              let probability = 1.0;
+              let totalDebuffValue = 0;
+              
+              for (let i = 0; i < n; i++) {
+                if (mask & (1 << i)) {
+                  // この衰弱が適用される
+                  probability *= debuffEffects[i].rate;
+                  totalDebuffValue += debuffEffects[i].value;
+                } else {
+                  // この衰弱が適用されない
+                  probability *= (1 - debuffEffects[i].rate);
+                }
+              }
+              
+              // この組み合わせでの敵火力
+              const enemyPowerMultiplier = 1 / (1 + totalDebuffValue / 100);
+              expectedEnemyPower += probability * enemyPowerMultiplier;
+            }
+            
+            // 衰弱耐久補正 = 1 / E[F]
+            debuffDurabilityCorrection = 1 / expectedEnemyPower;
+          }
+
+          if (useTitan) {
+            heroes.forEach((hero, i) => {
+              const data = heroData[hero.name];
+              if (!data || data.name === '未実装') return;
+
+              // 実際のAS発動率
+              let asRate = 0;
+              if (data.asRate) {
+                asRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
+              }
+
+              titanEquip[i].forEach((equip, slotIdx) => {
+                // 磁場（磁気付与）
+                if (equip.effect === '磁場' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
+                  if (effect && effect.levels && effect.counts) {
+                    const magneticValue = effect.levels[equip.level - 1];
+                    const magneticCount = effect.counts[equip.level - 1];
+                    const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+                    totalASDamage += asRate * magneticValue * magneticCount * magneticBoost / 100;
+                  }
+                }
+                
+                // 灼熱（燃焼付与）
+                if (equip.effect === '灼熱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '灼熱');
+                  if (effect && effect.levels && effect.counts) {
+                    const burningValue = effect.levels[equip.level - 1];
+                    const burningCount = effect.counts[equip.level - 1];
+                    const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
+                    totalASDamage += asRate * burningValue * burningCount * burningBoost / 100;
+                  }
+                }
+
+                // 破凱（脆弱付与）- 直接ダメージを強化
+                if (equip.effect === '破凱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破凱');
+                  if (effect && effect.levels && effect.counts && effect.lossCoefs) {
+                    const vulnerValue = effect.levels[equip.level - 1];
+                    const vulnerCount = effect.counts[equip.level - 1];
+                    const lossCoef = effect.lossCoefs[equip.level - 1];
+                    const vulnerBoost = 100 + localVulnerBoosts[i];
+                    
+                    // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化
+                    // これはASトリガーなので実際AS発動率を掛ける
+                    const vulnerDamage = asRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
+                                        (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
+                                        (vulnerBoost / 100);
+                    totalASDamage += vulnerDamage;
+                    // 脆弱ダメージも直接ダメージ属性
+                    totalDirectDamage += vulnerDamage;
+                    // 脆弱の弾数は付与数
+                    totalDirectBullets += asRate * vulnerCount * lossCoef * 0.95;
+                  }
+                }
+              });
+            });
+          }
+
+          // 全軍突撃の計算（R1重み適用）
+          let rushBonus = 0;
+          if (useTitan) {
+            heroes.forEach((hero, i) => {
+              const data = heroData[hero.name];
+              if (!data || data.name === '未実装') return;
+
+              // 全軍突撃装備の検出
+              let hasRush = false;
+              let rushValue = 0;
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '全軍突撃' && slotNames[slotIdx] === 'rifle') {
+                  const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '全軍突撃');
+                  if (effect && effect.levels) {
+                    hasRush = true;
+                    rushValue = effect.levels[equip.level - 1];
+                  }
+                }
+              });
+
+              if (hasRush && data.asRate) {
+                const actualRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
+                const exLv = hero.exclusiveLv;
+                
+                // AS直接ダメージの全突分
+                if (data.asDamage && data.asBullets) {
+                  const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+                  const damage = data.asDamage(exLv);
+                  rushBonus += actualRate * damage * bullets * (rushValue / 100);
+                }
+
+                // ペトラのAS追加磁気の全突分（磁気属性だが全突対象）
+                if (hero.name === 'ペトラ' && data.asExtraEffect) {
+                  const extra = data.asExtraEffect(exLv, hasCombo);
+                  if (extra) {
+                    const bulletCoefficient = 1.5 + runeMagneticBonus;
+                    const adjustedBullets = (exLv >= 5 ? 5 : 4) * 0.5 * bulletCoefficient;
+                    const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+                    rushBonus += actualRate * extra.damage * adjustedBullets * magneticBoost / 100 * (rushValue / 100);
+                  }
+                }
+
+                // 磁場（磁気付与）の全突分
+                titanEquip[i].forEach((equip, slotIdx) => {
+                  if (equip.effect === '磁場' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                    const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
+                    if (effect && effect.levels && effect.counts) {
+                      const magneticValue = effect.levels[equip.level - 1];
+                      const magneticCount = effect.counts[equip.level - 1];
+                      const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+                      rushBonus += actualRate * magneticValue * magneticCount * magneticBoost / 100 * (rushValue / 100);
+                    }
+                  }
+
+                  // 灼熱（燃焼付与）の全突分
+                  if (equip.effect === '灼熱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                    const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '灼熱');
+                    if (effect && effect.levels && effect.counts) {
+                      const burningValue = effect.levels[equip.level - 1];
+                      const burningCount = effect.counts[equip.level - 1];
+                      const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
+                      rushBonus += actualRate * burningValue * burningCount * burningBoost / 100 * (rushValue / 100);
+                    }
+                  }
+
+                  // 破凱（脆弱付与）の全突分
+                  if (equip.effect === '破凱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
+                    const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破凱');
+                    if (effect && effect.levels && effect.counts && effect.lossCoefs) {
+                      const vulnerValue = effect.levels[equip.level - 1];
+                      const vulnerCount = effect.counts[equip.level - 1];
+                      const lossCoef = effect.lossCoefs[equip.level - 1];
+                      const vulnerBoost = 100 + localVulnerBoosts[i];
+                      const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
+                                          (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
+                                          (vulnerBoost / 100);
+                      rushBonus += vulnerDamage * (rushValue / 100);
+                    }
+                  }
+                });
+              }
+            });
+            
+            // R1重み（0.32）を適用
+            totalASDamage += rushBonus * 0.32;
+          }
 
           let heroBasePower = (100 + totalAttackBuff) / 100;
           let heroBaseDurability = (100 + totalShieldBuff) / 100;
@@ -907,8 +1383,25 @@
 
           const passiveDamage = totalPSDamage;
           const heroPower = heroBasePower * (passiveDamage + totalASDamage) / 100;
-          const heroDurability = heroBaseDurability * ironWallCorrection * 1.0;
+          const heroDurability = heroBaseDurability * ironWallCorrection * debuffDurabilityCorrection;
           const heroStrength = heroPower * heroDurability;
+
+          // ダメージ属性の構造（将来的な拡張用）
+          // damageBreakdown = {
+          //   direct: { // 直接ダメージ（脆弱の影響を受ける）
+          //     as: AS直接ダメージの合計,
+          //     normal: 通常攻撃ダメージ
+          //   },
+          //   magnetic: 磁気ダメージの合計,
+          //   burning: 燃焼ダメージの合計,
+          //   weaken: 衰弱値（耐久に寄与）,
+          //   vulnerable: 脆弱値（直接ダメージ強化）
+          // }
+
+          // （追撃火力／総火力）／弾数
+          const rushRatio = totalASBullets > 0 ? 
+            (totalASDamage / (totalASDamage + passiveDamage)) / totalASBullets : 
+            0;
 
           return {
             heroBasePower,
@@ -916,6 +1409,8 @@
             totalASDamage,
             passiveDamage,
             ironWallCorrection,
+            debuffDurabilityCorrection,
+            rushRatio,
             heroPower,
             heroDurability,
             heroStrength
@@ -931,6 +1426,7 @@
         };
 
         return {
+          typeWarning,
           compatDurability,
           compatPower,
           compatStrength,
@@ -959,10 +1455,23 @@
           <div className="header">
             <h1>
               <CalculatorIcon />
-              英雄性能・タイタン評価ツール
+              英雄タイタン強さ評価ツール
+              <span className="version-badge">v2.0 Phase 3</span>
             </h1>
-            <p>まだ磁気編成と磁気系特殊効果＋洞察補足鋼砲撃しか適用できてないけど。ｗ</p>
+            <p>by Napo  feat.Sonnet</p>
           </div>
+
+          {/* 兵種不一致の警告 */}
+          {(() => {
+            const types = heroes.map(h => heroData[h.name]?.type).filter(t => t && t !== '汎用');
+            const uniqueTypes = [...new Set(types)];
+            return uniqueTypes.length > 1 && (
+              <div className="warning">
+                <AlertIcon />
+                英雄の兵種が異なります
+              </div>
+            );
+          })()}
 
           <div className="grid">
             {/* 左カラム：バフ設定 */}
@@ -1012,16 +1521,6 @@
                   ))}
 
                   <div className="form-group">
-                    <label className="form-label">兵種相性設定 (%)</label>
-                    <input
-                      type="number"
-                      value={buffs.typeAdvantage}
-                      onChange={(e) => updateBuff('typeAdvantage', e.target.value)}
-                      className="form-input"
-                    />
-                  </div>
-
-                  <div className="form-group">
                     <label className="form-label">基礎開戦シールド</label>
                     <select
                       value={buffs.baseShield}
@@ -1032,6 +1531,36 @@
                         <option key={val} value={val}>{val}</option>
                       ))}
                     </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <h2><SwordsIcon /> 相性環境設定</h2>
+                <div className="space-y-3">
+                  <div className="form-group">
+                    <label className="form-label">兵種相性設定 (%)</label>
+                    <input
+                      type="number"
+                      value={buffs.typeAdvantage}
+                      onChange={(e) => updateBuff('typeAdvantage', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">有利・同兵種・不利</label>
+                    <div className="compatibility-buttons">
+                      {['同兵種', '有利', '不利'].map(comp => (
+                        <button
+                          key={comp}
+                          onClick={() => setCompatibility(comp)}
+                          className={`btn ${compatibility === comp ? 'btn-primary active' : 'btn-secondary'}`}
+                        >
+                          {comp}
+                        </button>
+                      ))}
+                    </div>
                   </div>
 
                   <div className="form-group">
@@ -1069,21 +1598,17 @@
                       className="form-input"
                     />
                   </div>
-                </div>
-              </div>
 
-              <div className="card">
-                <h2><SwordsIcon /> 相性設定</h2>
-                <div className="compatibility-buttons">
-                  {['同兵種', '有利', '不利'].map(comp => (
-                    <button
-                      key={comp}
-                      onClick={() => setCompatibility(comp)}
-                      className={`btn ${compatibility === comp ? 'btn-primary active' : 'btn-secondary'}`}
-                    >
-                      {comp}
-                    </button>
-                  ))}
+                  <div className="form-group">
+                    <label className="form-label">敵の（追撃火力／総火力）／弾数</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={buffs.enemyRushRatio}
+                      onChange={(e) => updateBuff('enemyRushRatio', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
                 </div>
               </div>
             </div>
@@ -1108,10 +1633,34 @@
 
               <div className="card">
                 <h2>英雄設定</h2>
+                {calculations.typeWarning && (
+                  <div style={{
+                    background: 'rgba(220, 38, 38, 0.2)',
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    borderRadius: '0.375rem',
+                    padding: '0.75rem',
+                    marginBottom: '1rem',
+                    color: '#fca5a5',
+                    fontWeight: '600',
+                    fontSize: '0.875rem'
+                  }}>
+                    {calculations.typeWarning}
+                  </div>
+                )}
                 <div className="space-y-4">
                   {heroes.map((hero, i) => (
                     <div key={i} className="hero-card">
-                      <div className="hero-title">英雄 {i + 1}</div>
+                      <div className="hero-title">
+                        英雄 {i + 1}
+                        {heroData[hero.name]?.type && (
+                          <span className={`hero-type-badge type-${
+                            heroData[hero.name].type === '陸軍' ? 'land' :
+                            heroData[hero.name].type === '海軍' ? 'sea' : 'air'
+                          }`}>
+                            {heroData[hero.name].type}
+                          </span>
+                        )}
+                      </div>
                       <div className="hero-grid">
                         <div className="form-group">
                           <label className="form-label">名前</label>
@@ -1262,46 +1811,61 @@
               <div className="card">
                 <h2 style={{ color: '#c084fc' }}>英雄計算</h2>
                 <div className="space-y-2">
-                  <div className="result-box">
-                    <div className="result-label">
-                      <span>基礎英雄火力</span>
-                      {titanEnabled && calculations.increases.heroBasePower > 0 && (
-                        <span className="result-increase">+{calculations.increases.heroBasePower}%</span>
-                      )}
+                  {/* 火力と耐久の項目を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>基礎英雄火力</span>
+                        {titanEnabled && calculations.increases.heroBasePower > 0 && (
+                          <span className="result-increase">+{calculations.increases.heroBasePower}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-red">{formatNumber(calculations.heroBasePower)}倍</div>
                     </div>
-                    <div className="result-value value-red">{formatNumber(calculations.heroBasePower)}倍</div>
-                  </div>
-                  <div className="result-box">
-                    <div className="result-label">
-                      <span>基礎英雄耐久</span>
-                      {titanEnabled && calculations.increases.heroBaseDurability > 0 && (
-                        <span className="result-increase">+{calculations.increases.heroBaseDurability}%</span>
-                      )}
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>基礎英雄耐久</span>
+                        {titanEnabled && calculations.increases.heroBaseDurability > 0 && (
+                          <span className="result-increase">+{calculations.increases.heroBaseDurability}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-green">{formatNumber(calculations.heroBaseDurability)}倍</div>
                     </div>
-                    <div className="result-value value-green">{formatNumber(calculations.heroBaseDurability)}倍</div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">
-                      <span>アクティブスキル総ダメージ</span>
-                      {titanEnabled && calculations.increases.totalASDamage > 0 && (
-                        <span className="result-increase">+{calculations.increases.totalASDamage}%</span>
-                      )}
+
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>AS総ダメージ</span>
+                        {titanEnabled && calculations.increases.totalASDamage > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalASDamage}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-yellow">{formatNumber(calculations.totalASDamage)}%</div>
                     </div>
-                    <div className="result-value value-yellow">{formatNumber(calculations.totalASDamage)}%</div>
-                  </div>
-                  <div className="result-box">
-                    <div className="result-label">
-                      <span>パッシブダメージ</span>
-                      {titanEnabled && calculations.increases.passiveDamage > 0 && (
-                        <span className="result-increase">+{calculations.increases.passiveDamage}%</span>
-                      )}
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>パッシブダメージ</span>
+                        {titanEnabled && calculations.increases.passiveDamage > 0 && (
+                          <span className="result-increase">+{calculations.increases.passiveDamage}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-orange">{formatNumber(calculations.passiveDamage)}%</div>
                     </div>
-                    <div className="result-value value-orange">{formatNumber(calculations.passiveDamage)}%</div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">鉄壁耐久補正</div>
-                    <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
+
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">鉄壁耐久補正</div>
+                      <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">衰弱耐久補正</div>
+                      <div className="result-value value-blue">{formatNumber(calculations.debuffDurabilityCorrection)}</div>
+                    </div>
                   </div>
+
+                  {/* 強調項目 */}
                   <div className="result-box result-highlight">
                     <div className="result-label">
                       <span>英雄火力</span>
@@ -1334,6 +1898,12 @@
                     <div className="result-value value-purple" style={{ fontSize: '1.5rem' }}>
                       {formatNumber(calculations.heroStrength)}
                     </div>
+                  </div>
+
+                  {/* 追撃火力比率 */}
+                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
+                    <div className="result-label">（追撃火力／総火力）／弾数</div>
+                    <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
                   </div>
                 </div>
               </div>
