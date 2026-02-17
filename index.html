@@ -436,6 +436,40 @@
       margin-bottom: 0;
     }
 
+    /* タブ折りたたみ */
+    .card-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      cursor: pointer;
+      user-select: none;
+      margin-bottom: 1rem;
+    }
+
+    .card-header h2 {
+      margin-bottom: 0;
+    }
+
+    .collapse-icon {
+      font-size: 1.25rem;
+      transition: transform 0.3s ease;
+    }
+
+    .collapse-icon.collapsed {
+      transform: rotate(-90deg);
+    }
+
+    .card-content {
+      overflow: hidden;
+      transition: max-height 0.3s ease, opacity 0.3s ease;
+    }
+
+    .card-content.hidden {
+      max-height: 0;
+      opacity: 0;
+      pointer-events: none;
+    }
+
     /* アイコン */
     .icon {
       display: inline-block;
@@ -618,6 +652,26 @@
 
     const exclusiveMultipliers = { 0: 1.0, 3: 1.1, 5: 1.21, 7: 1.34 };
 
+    // ラウンド重み係数（火力用）- 敵の鉄壁条件に応じて変化
+    const getDefaultPowerRoundWeights = (enemyIronWall) => {
+      if (enemyIronWall === '鉄壁無し') {
+        return [0.5, 0.3, 0.15, 0.05];
+      } else if (enemyIronWall === '専用なし') {
+        return [0.3, 0.4, 0.2, 0.1];
+      } else if (enemyIronWall === '専用5') {
+        return [0.32, 0.22, 0.27, 0.19];
+      } else if (enemyIronWall === '専用7') {
+        return [0.27, 0.21, 0.36, 0.16];
+      } else if (enemyIronWall === '専用7＋Lv7破壊不能') {
+        return [0.28, 0.25, 0.28, 0.19];
+      }
+      // デフォルト（専用5の値）
+      return [0.32, 0.22, 0.27, 0.19];
+    };
+    
+    // ラウンド重み係数（耐久用）- デフォルト
+    const defaultDurabilityRoundWeights = [0.32, 0.22, 0.27, 0.19];
+
     // 衰弱率テーブル（付与数1個用）
     const debuffRate1 = {
       18: { noRush: 13.25, withRush: 16.48 },
@@ -662,27 +716,57 @@
       42: { noRush: 47.53, withRush: 57.81 }
     };
 
-    // 衰弱率を取得する関数
+    // 衰弱率を取得する関数（線形補正対応）
     const getDebuffRate = (asRate, count, hasRush) => {
       const ratePercent = Math.round(asRate * 100);
       const table = count === 1 ? debuffRate1 : debuffRate2;
+      const key = hasRush ? 'withRush' : 'noRush';
       
-      // 最も近い発動率を探す（同距離の場合は高い方）
-      let closestRate = 18;
-      let minDiff = Math.abs(ratePercent - 18);
+      // テーブルのキー（発動率）を数値配列に変換してソート
+      const rates = Object.keys(table).map(r => parseInt(r)).sort((a, b) => a - b);
+      const minRate = rates[0];  // 18
+      const maxRate = rates[rates.length - 1];  // 42
       
-      for (const rate in table) {
-        const diff = Math.abs(ratePercent - parseInt(rate));
-        if (diff < minDiff || (diff === minDiff && parseInt(rate) > closestRate)) {
-          closestRate = parseInt(rate);
-          minDiff = diff;
+      // 範囲内の場合：最も近い値を使用
+      if (ratePercent >= minRate && ratePercent <= maxRate) {
+        let closestRate = minRate;
+        let minDiff = Math.abs(ratePercent - minRate);
+        
+        for (const rate of rates) {
+          const diff = Math.abs(ratePercent - rate);
+          if (diff < minDiff || (diff === minDiff && rate > closestRate)) {
+            closestRate = rate;
+            minDiff = diff;
+          }
         }
+        
+        return table[closestRate][key] / 100;
       }
       
-      return (hasRush ? table[closestRate].withRush : table[closestRate].noRush) / 100;
+      // 最小以下の場合：0%と最小値の間で線形補正
+      if (ratePercent < minRate) {
+        const minValue = table[minRate][key];
+        // (0%, 0) と (minRate%, minValue%) の間で補間
+        return (minValue / minRate) * ratePercent / 100;
+      }
+      
+      // 最大以上の場合：最大2つの値の間で線形補正
+      const secondMaxRate = rates[rates.length - 2];
+      const maxValue = table[maxRate][key];
+      const secondMaxValue = table[secondMaxRate][key];
+      
+      // 傾き = (maxValue - secondMaxValue) / (maxRate - secondMaxRate)
+      const slope = (maxValue - secondMaxValue) / (maxRate - secondMaxRate);
+      const extrapolatedValue = maxValue + slope * (ratePercent - maxRate);
+      
+      return extrapolatedValue / 100;
     };
 
     const heroData = {
+      '外す': {
+        name: '外す',
+        type: '汎用'
+      },
       'ペトラ': {
         type: '陸軍',
         attackBuff: (ex) => 100 * exclusiveMultipliers[ex],
@@ -701,10 +785,34 @@
         psMagneticDamage: (ex) => ex >= 5 ? 60 : 40,
         psMagneticBullets: (ex) => {
           let base = 2.2;
-          if (ex >= 7) base += 2.3;
-          else if (ex >= 5) base += 1.3;
+          if (ex >= 7) base += 2.0;  // 専7: 2.2 + 2.0 = 4.2個
+          else if (ex >= 5) base += 1.0;  // 専5: 2.2 + 1.0 = 3.2個
           return base;
         }
+      },
+      'ノーラ': {
+        type: '海軍',
+        attackBuff: (ex) => 110 * exclusiveMultipliers[ex],
+        // PSの衰弱付与（1ラウンドに1度）
+        psDebuffValue: 30,
+        psDebuffCount: (ex) => ex >= 5 ? 4 : 3,
+        psDebuffRate: (ex) => ex >= 5 ? 44.4 : 33.3,
+        // PSの脆弱付与（1ラウンドに1度、確率11.11%）
+        psVulnerableValue: 30,
+        psVulnerableCount: (ex) => ex >= 7 ? 4 : 3,
+        psVulnerableLossCoef: 0.98,
+        psVulnerableTriggerRate: 11.11 / 100,
+        psVulnerableDamage: (ex) => {
+          if (ex >= 7) return 40 + 265 + 200; // 505
+          if (ex >= 5) return 40 + 180 + 139; // 359
+          return 40 + 140 + 115; // 295
+        },
+        // グローバル効果
+        globalDebuffBoost: (ex) => ex >= 5 ? 40 : 0,
+        globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
+        globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : 1.0,
+        specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.25 : 1.0,
+        specialHeroes: ['ミーク', 'アイリス', 'ソフィ', 'ヒヨリ']
       },
       'ルネ': {
         type: '陸軍',
@@ -718,12 +826,79 @@
       'カトレア': { name: '未実装', type: '陸軍' },
       'シャーリー': { name: '未実装', type: '陸軍' },
       'ミーチェ': { name: '未実装', type: '陸軍' },
-      'ノーラ': { name: '未実装', type: '海軍' },
-      'ソフィ': { name: '未実装', type: '海軍' },
-      'ミーク': { name: '未実装', type: '海軍' },
+      'ソフィ': {
+        type: '海軍',
+        shieldBuff: (ex) => 66 * exclusiveMultipliers[ex],
+        asRate: 35,
+        asDamage: (ex, hasAbnormalCombo) => {
+          // 異常特攻: 状態異常種類数 × 特攻倍率
+          const abnormalTypes = hasAbnormalCombo ? 1.3 : 0.4;
+          const abnormalBonus = (ex >= 7 ? 25 : ex >= 5 ? 15 : 10) * Math.min(abnormalTypes, 3);
+          return 130 * exclusiveMultipliers[ex] + abnormalBonus;
+        },
+        asBullets: (ex) => ex >= 7 ? 5 : 3,
+        // PS：毎ターン脆弱属性ダメージ（付与ロス・期待値計算済み）
+        psVulnerable: (ex) => {
+          if (ex >= 7) return { count: 1.5, damage: 14.17 };
+          if (ex >= 5) return { count: 1.5, damage: 7.43 };
+          return { count: 1.0, damage: 8.77 };
+        }
+      },
+      'ヒヨリ': {
+        type: '海軍',
+        shieldBuff: (ex) => 65 * exclusiveMultipliers[ex],
+        asRate: 35,
+        asDamage: (ex, hasAbnormalCombo) => {
+          const abnormalBonus = ex >= 7 ? 50 : ex >= 5 ? 30 : 10;
+          return 130 * exclusiveMultipliers[ex] + abnormalBonus;
+        },
+        asBullets: (ex) => ex >= 7 ? 5 : 3,
+        // PS：毎ターン脆弱属性ダメージ
+        psVulnerable: (ex) => {
+          if (ex >= 7) return { count: 1.5, damage: 10.63 };
+          if (ex >= 5) return { count: 1.5, damage: 5.57 };
+          return { count: 1.0, damage: 8.77 };
+        }
+      },
+      'ミーク': {
+        type: '海軍',
+        ironWallValue: (ex) => (ex >= 7 ? 50 : 40) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
+        asRate: 35,
+        asDamage: (ex) => (ex >= 5 ? 115 : 90) * exclusiveMultipliers[ex],
+        asBullets: (ex) => ex >= 7 ? 4.5 : 3,
+        // AS衰弱効果
+        asDebuff: (ex, hasRush, silenceCount) => {
+          const actualRate = 35 * (9 - silenceCount) / 9 / 100;
+          const baseRate = 35 / 100;
+          const baseDebuffRate = ex >= 7 ? (hasRush ? 86.3 : 81.4) : (hasRush ? 80.3 : 69.8);
+          const adjustedRate = baseDebuffRate * Math.sqrt(actualRate / baseRate) / 100;
+          return { value: 15 * exclusiveMultipliers[ex], rate: adjustedRate };
+        },
+        // AS重甲付与
+        asArmor: { count: 1.5, value: 15 }
+      },
+      'アイリス': {
+        type: '海軍',
+        ironWallValue: (ex) => (ex >= 7 ? 50 : 40) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
+        asRate: 35,
+        asDamage: (ex) => 95 * exclusiveMultipliers[ex],
+        asBullets: (ex) => ex >= 7 ? 5 : 3,
+        // AS衰弱効果
+        asDebuff: (ex, hasRush, silenceCount) => {
+          const actualRate = 35 * (9 - silenceCount) / 9 / 100;
+          const baseRate = 35 / 100;
+          const baseDebuffRate = ex >= 5 ? (hasRush ? 86.3 : 81.4) : (hasRush ? 80.3 : 69.8);
+          // 四乗根で調整（√√）
+          const adjustedRate = baseDebuffRate * Math.pow(actualRate / baseRate, 0.25) / 100;
+          return { value: 15 * exclusiveMultipliers[ex], rate: adjustedRate };
+        },
+        // AS重甲付与
+        asArmor: { count: 3, value: 15 }
+      },
       'レイチェル': { name: '未実装', type: '海軍' },
       'コレット': { name: '未実装', type: '海軍' },
-      'アイリス': { name: '未実装', type: '海軍' },
       'リヴィア': { name: '未実装', type: '空軍' },
       'ルチル': { name: '未実装', type: '空軍' },
       'ノルシュ': { name: '未実装', type: '空軍' },
@@ -760,6 +935,7 @@
           { name: '点火', desc: '燃焼強化', levels: [15, 22, 30] },
           { name: '着磁', desc: '磁気強化', levels: [15, 22, 30] },
           { name: '重撃', desc: '脆弱強化', levels: [15, 22, 30] },
+          { name: '重甲', desc: '敵追撃ダメ軽減', levels: [15, 22, 30], counts: [1, 1.5, 2] },
           { name: '鋼の奔流', desc: '開戦シールドの強化', levels: [4, 7, 11, 15, 19, 23, 30] },
           { name: '破壊不能', desc: '鉄壁１ラウンド追加', levels: [15, 18, 22, 27, 33, 40, 50] }
         ]
@@ -819,11 +995,87 @@
         silenceCount: 0,
         enemyIronWall: '専用5',
         powerDiff: 1.0,
-        enemyRushRatio: 0.0
+        enemyRushRatio: 0.15,
+        enemyPowerDurabilityRatio: 0.3,
+        myPowerDurabilityRatio: 0.3
       });
 
       const [compatibility, setCompatibility] = useState('同兵種');
       const [titanEnabled, setTitanEnabled] = useState(true);
+      
+      // ラウンド重み係数
+      const [powerRoundWeights, setPowerRoundWeights] = useState(getDefaultPowerRoundWeights('専用5'));
+      const [durabilityRoundWeights, setDurabilityRoundWeights] = useState(defaultDurabilityRoundWeights);
+      
+      // 敵の火力/耐久比に応じて火力ラウンド重み係数を調整する関数
+      const adjustPowerWeightsByRatio = (baseWeights, ratio) => {
+        // ratio: 0.1～0.5 (デフォルト0.3)
+        // 0.3の時はbaseWeightsそのまま
+        // 0に近づくほど [0,0,0,1] に近づく（線形補正）
+        // 1に近づくほどR4が0に近づき、他が比率維持して上昇
+        
+        if (ratio === 0.3) return baseWeights;
+        
+        const target0 = [0, 0, 0, 1]; // ratio=0のターゲット
+        
+        if (ratio < 0.3) {
+          // 0から0.3の間: 線形補間
+          const t = ratio / 0.3; // 0～1
+          return baseWeights.map((w, i) => w * t + target0[i] * (1 - t));
+        } else {
+          // 0.3から上: R4を減らし、他を比率維持して増加
+          // ratio=1でR4=0を目指す
+          const t = (ratio - 0.3) / (0.5 - 0.3); // 0～1 (0.3～0.5で正規化)
+          const clampedT = Math.max(0, Math.min(1, t));
+          
+          // R4を減らす
+          const newR4 = baseWeights[3] * (1 - clampedT);
+          
+          // R1,R2,R3の合計を求める
+          const r123Sum = baseWeights[0] + baseWeights[1] + baseWeights[2];
+          
+          // 減った分を比率維持してR1,R2,R3に分配
+          const addAmount = baseWeights[3] * clampedT;
+          const newR1 = baseWeights[0] + (baseWeights[0] / r123Sum) * addAmount;
+          const newR2 = baseWeights[1] + (baseWeights[1] / r123Sum) * addAmount;
+          const newR3 = baseWeights[2] + (baseWeights[2] / r123Sum) * addAmount;
+          
+          return [newR1, newR2, newR3, newR4];
+        }
+      };
+      
+      // 敵の鉄壁条件または火力/耐久比が変更されたら火力ラウンド重み係数を自動更新
+      React.useEffect(() => {
+        const baseWeights = getDefaultPowerRoundWeights(buffs.enemyIronWall);
+        const adjustedWeights = adjustPowerWeightsByRatio(baseWeights, buffs.enemyPowerDurabilityRatio);
+        setPowerRoundWeights(adjustedWeights);
+      }, [buffs.enemyIronWall, buffs.enemyPowerDurabilityRatio]);
+      
+      // タブ折りたたみ状態
+      const [expandedTabs, setExpandedTabs] = useState({
+        buffs: true,
+        environment: true,
+        heroes: true,
+        titanEquip: true,
+        buffCalc: true,
+        heroCalc: true,
+        totalEval: true
+      });
+      
+      // 英雄ごとのタイタン装備折りたたみ状態
+      const [expandedTitanHeroes, setExpandedTitanHeroes] = useState({
+        0: true,
+        1: true,
+        2: true
+      });
+      
+      const toggleTab = (tabName) => {
+        setExpandedTabs(prev => ({...prev, [tabName]: !prev[tabName]}));
+      };
+      
+      const toggleTitanHero = (heroIndex) => {
+        setExpandedTitanHeroes(prev => ({...prev, [heroIndex]: !prev[heroIndex]}));
+      };
 
       const [heroes, setHeroes] = useState([
         { name: 'ペトラ', exclusiveLv: 0 },
@@ -835,8 +1087,21 @@
         heroes.map(() => slotNames.map(() => ({ effect: '', level: 1 })))
       );
 
+      const numericBuffKeys = new Set([
+        'troops', 'soldierLv', 'life', 'attack', 'damageIncrease', 'damageReduction',
+        'defense', 'typeAdvantage', 'baseShield', 'silenceCount',
+        'powerDiff', 'enemyRushRatio', 'enemyPowerDurabilityRatio', 'myPowerDurabilityRatio'
+      ]);
+      
       const updateBuff = (key, value) => {
-        setBuffs(prev => ({ ...prev, [key]: parseFloat(value) || value }));
+        if (numericBuffKeys.has(key)) {
+          const parsed = parseFloat(value);
+          // null/空/変換不能な場合は0をセット
+          setBuffs(prev => ({ ...prev, [key]: isNaN(parsed) ? 0 : parsed }));
+        } else {
+          // 文字列フィールド（enemyIronWallなど）はそのまま保存
+          setBuffs(prev => ({ ...prev, [key]: value }));
+        }
       };
 
       const selectPreset = (presetNum) => {
@@ -867,10 +1132,13 @@
 
       // 計算処理
       const calculations = useMemo(() => {
-        // 兵種の不一致チェック
-        const heroTypes = heroes.map(h => heroData[h.name]?.type).filter(t => t && t !== '汎用');
+        // 兵種の不一致チェック（外す・未実装を除く有効な英雄のみ）
+        const heroTypes = heroes
+          .filter(h => h.name !== '外す' && heroData[h.name] && !heroData[h.name].name)
+          .map(h => heroData[h.name].type)
+          .filter(t => t && t !== '汎用');
         const uniqueTypes = [...new Set(heroTypes)];
-        const typeWarning = uniqueTypes.length > 1 ? '⚠️ 英雄の兵種が異なります' : '';
+        const typeWarning = uniqueTypes.length > 1 ? '⚠️ 英雄の兵種が異なります（混成編成）' : '';
 
         const soldier = soldierData[buffs.soldierLv];
         
@@ -888,9 +1156,10 @@
         const compatTroopDurability = compatDurability * buffs.troops;
         const compatTroopPower = compatPower * buffs.troops;
         const compatTroopStrength = compatTroopDurability * compatTroopPower;
-        const compatTroopSoldierDurability = compatTroopDurability * soldier.durability;
-        const compatTroopSoldierPower = compatTroopPower * soldier.power;
-        const compatTroopSoldierStrength = compatTroopSoldierDurability * compatTroopSoldierPower;
+        const compatTroopSoldierDurability = compatTroopDurability * soldier.durability * 1000000000; // 1B掛ける
+        const compatTroopSoldierPower = compatTroopPower * soldier.power * 1000000000; // 1B掛ける
+        // 強さ値は1B^2がかからないように計算
+        const compatTroopSoldierStrength = (compatTroopSoldierDurability / 1000000000) * (compatTroopSoldierPower / 1000000000);
 
         // タイタン効果の計算（ON/OFF両方）
         const calculateHeroStats = (useTitan) => {
@@ -901,6 +1170,9 @@
           // 直接ダメージ追跡（脆弱計算用）
           let totalDirectDamage = 0;
           let totalDirectBullets = 0;
+          
+          // 脆弱ダメージ追跡（脆弱属性）
+          let totalVulnerableDamage = 0;
           
           // AS弾数追跡（追撃火力比率計算用）
           let totalASBullets = 0;
@@ -979,6 +1251,48 @@
               globalBurningBoost += data.burningBoost(hero.exclusiveLv);
             }
           });
+
+          // グローバル衰弱効果強化（ノーラ専用5以上で+40%）
+          let globalDebuffBoost = 0;
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (data && data.globalDebuffBoost) {
+              globalDebuffBoost += data.globalDebuffBoost(hero.exclusiveLv);
+            }
+          });
+
+          // グローバル脆弱効果強化（ノーラ専用5以上で+60%）
+          let globalVulnerableBoost = 0;
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (data && data.globalVulnerableBoost) {
+              globalVulnerableBoost += data.globalVulnerableBoost(hero.exclusiveLv);
+            }
+          });
+
+          // グローバルASダメージ倍率（ノーラ専用7以上で適用）
+          let noraASDamageMultiplier = 1.0;
+          let noraSpecialMultiplier = 1.0;
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (data && data.globalASDamageMultiplier) {
+              const mult = data.globalASDamageMultiplier(hero.exclusiveLv);
+              if (mult > noraASDamageMultiplier) {
+                noraASDamageMultiplier = mult;
+              }
+            }
+            if (data && data.specialHeroesASDamageMultiplier) {
+              const mult = data.specialHeroesASDamageMultiplier(hero.exclusiveLv);
+              if (mult > noraSpecialMultiplier) {
+                noraSpecialMultiplier = mult;
+              }
+            }
+          });
+          const noraSpecialHeroes = heroes.some(h => {
+            const data = heroData[h.name];
+            return data && data.specialHeroes;
+          }) ? heroData[heroes.find(h => heroData[h.name]?.specialHeroes)?.name]?.specialHeroes || [] : [];
+
 
           // ローカル磁気効果強化（装備した英雄のみに適用）
           const localMagneticBoosts = heroes.map((hero, i) => {
@@ -1076,7 +1390,7 @@
 
           heroes.forEach((hero, i) => {
             const data = heroData[hero.name];
-            if (!data || data.name === '未実装') return;
+            if (!data || data.name === '未実装' || data.name === '外す') return;
 
             const exLv = hero.exclusiveLv;
             
@@ -1102,8 +1416,23 @@
             if (data.asRate && data.asDamage && data.asBullets) {
               const actualRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
               const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
-              const damage = data.asDamage(exLv);
-              const asDamageAmount = actualRate * damage * bullets;
+              
+              // ソフィ・ヒヨリの異常特攻判定
+              const hasAbnormalCombo = (hero.name === 'ソフィ' || hero.name === 'ヒヨリ') &&
+                heroes.some(h => h.name === 'アイリス' || h.name === 'ミーク');
+              const damage = typeof data.asDamage === 'function' 
+                ? (data.asDamage.length >= 2 ? data.asDamage(exLv, hasAbnormalCombo) : data.asDamage(exLv))
+                : data.asDamage;
+              
+              // ノーラのグローバルASダメージ倍率を適用（直接ダメージ部分のみ）
+              let asDamageMultiplier = 1.0;
+              if (noraSpecialHeroes.includes(hero.name)) {
+                asDamageMultiplier = noraSpecialMultiplier;
+              } else {
+                asDamageMultiplier = noraASDamageMultiplier;
+              }
+              
+              const asDamageAmount = actualRate * damage * bullets * asDamageMultiplier;
               totalASDamage += asDamageAmount;
               
               // 直接ダメージとして追跡
@@ -1144,7 +1473,7 @@
           if (useTitan) {
             heroes.forEach((hero, i) => {
               const data = heroData[hero.name];
-              if (!data || data.name === '未実装') return;
+              if (!data || data.name === '未実装' || data.name === '外す') return;
 
               let asRate = 0;
               if (data.asRate) {
@@ -1159,28 +1488,53 @@
                 }
               });
 
-              // 衝撃（衰弱付与）効果を収集
+              // 衝撃（衰弱付与）効果を収集（タイタン装備）
               titanEquip[i].forEach((equip, slotIdx) => {
                 if (equip.effect === '衝撃' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
                   const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '衝撃');
                   if (effect && effect.levels && effect.counts) {
                     const weakenValue = effect.levels[equip.level - 1];
                     const weakenCount = effect.counts[equip.level - 1];
-                    const weakenBoost = 100 + localWeakenBoosts[i];
+                    const weakenBoost = 100 + localWeakenBoosts[i] + globalDebuffBoost;
                     const debuffRate = getDebuffRate(asRate, weakenCount, hasRush);
-                    
-                    // 振動による強化を適用した衰弱値
                     const enhancedValue = weakenValue * weakenBoost / 100;
-                    
-                    debuffEffects.push({
-                      value: enhancedValue,
-                      rate: debuffRate
-                    });
+                    debuffEffects.push({ value: enhancedValue, rate: debuffRate });
                   }
                 }
               });
             });
           }
+
+          // 英雄固有の衰弱スキル（タイタンON/OFFに関わらず適用）
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+
+            const exLv = hero.exclusiveLv;
+            let asRate = data.asRate ? data.asRate * (9 - buffs.silenceCount) / 9 / 100 : 0;
+
+            // 全軍突撃の有無を確認（タイタンON時のみ）
+            let hasRush = false;
+            if (useTitan) {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '全軍突撃' && slotNames[slotIdx] === 'rifle') hasRush = true;
+              });
+            }
+
+            // ノーラのPS衰弱付与
+            if (hero.name === 'ノーラ' && data.psDebuffValue) {
+              const debuffRate = data.psDebuffRate(exLv) / 100;
+              const enhancedValue = data.psDebuffValue * (100 + globalDebuffBoost) / 100;
+              debuffEffects.push({ value: enhancedValue, rate: debuffRate });
+            }
+
+            // ミーク・アイリスのAS衰弱付与
+            if ((hero.name === 'ミーク' || hero.name === 'アイリス') && data.asDebuff) {
+              const debuffInfo = data.asDebuff(exLv, hasRush, buffs.silenceCount);
+              const enhancedValue = debuffInfo.value * (100 + globalDebuffBoost) / 100;
+              debuffEffects.push({ value: enhancedValue, rate: debuffInfo.rate });
+            }
+          });
 
           // 衰弱耐久補正の計算（二項分布的な重複処理）
           let debuffDurabilityCorrection = 1.0;
@@ -1215,10 +1569,51 @@
             debuffDurabilityCorrection = 1 / expectedEnemyPower;
           }
 
+          // 重甲耐久補正の計算
+          // 重甲耐久補正 = 1 + 敵追撃期待値 × (重甲値% / 100%) × 重甲枚数期待値
+          let armorDurabilityCorrection = 1.0;
+          const enemyRushExpected = buffs.enemyRushRatio;
+          
+          // タイタン装備の重甲を集計
+          let totalArmorValue = 0;
+          let totalArmorCount = 0;
+          if (useTitan) {
+            heroes.forEach((hero, i) => {
+              titanEquip[i].forEach((equip, slotIdx) => {
+                if (equip.effect === '重甲' && slotNames[slotIdx] === 'armor') {
+                  const effect = titanEffects['armor'].effects.find(e => e.name === '重甲');
+                  if (effect && effect.levels && effect.counts) {
+                    totalArmorValue += effect.levels[equip.level - 1];
+                    totalArmorCount += effect.counts[equip.level - 1];
+                  }
+                }
+              });
+            });
+          }
+          
+          // ミーク・アイリスのAS重甲付与
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            if (data.asArmor) {
+              const exLv = hero.exclusiveLv;
+              const actualRate = data.asRate ? data.asRate * (9 - buffs.silenceCount) / 9 / 100 : 0;
+              // 期待重甲枚数 = 発動率 × 付与数
+              totalArmorValue += data.asArmor.value;
+              totalArmorCount += actualRate * data.asArmor.count;
+            }
+          });
+          
+          if (totalArmorCount > 0 && totalArmorValue > 0) {
+            armorDurabilityCorrection = 1 + enemyRushExpected * (totalArmorValue / 100) * totalArmorCount;
+          }
+          
+          // 衰弱等耐久補正 = 衰弱耐久補正 × 重甲耐久補正 × その他耐久補正
+          const totalDebuffDurabilityCorrection = debuffDurabilityCorrection * armorDurabilityCorrection;
           if (useTitan) {
             heroes.forEach((hero, i) => {
               const data = heroData[hero.name];
-              if (!data || data.name === '未実装') return;
+              if (!data || data.name === '未実装' || data.name === '外す') return;
 
               // 実際のAS発動率
               let asRate = 0;
@@ -1249,37 +1644,62 @@
                   }
                 }
 
-                // 破凱（脆弱付与）- 直接ダメージを強化
+                // 破凱（脆弱付与）- 脆弱属性のダメージ
                 if (equip.effect === '破凱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
                   const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破凱');
                   if (effect && effect.levels && effect.counts && effect.lossCoefs) {
                     const vulnerValue = effect.levels[equip.level - 1];
                     const vulnerCount = effect.counts[equip.level - 1];
                     const lossCoef = effect.lossCoefs[equip.level - 1];
-                    const vulnerBoost = 100 + localVulnerBoosts[i];
+                    const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
                     
-                    // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化
+                    // 脆弱ダメージ = (脆弱を含まない直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化
                     // これはASトリガーなので実際AS発動率を掛ける
                     const vulnerDamage = asRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
                                         (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
                                         (vulnerBoost / 100);
                     totalASDamage += vulnerDamage;
-                    // 脆弱ダメージも直接ダメージ属性
-                    totalDirectDamage += vulnerDamage;
-                    // 脆弱の弾数は付与数
-                    totalDirectBullets += asRate * vulnerCount * lossCoef * 0.95;
+                    // 脆弱ダメージは脆弱属性として別途追跡（弾数はカウントしない）
+                    totalVulnerableDamage += vulnerDamage;
                   }
                 }
               });
             });
           }
 
+          // 英雄固有のPS脆弱ダメージ（タイタンON/OFFに関わらず適用）
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            const exLv = hero.exclusiveLv;
+
+            // ノーラのPS脆弱付与（1ラウンドに1度、確率11.11%）
+            if (hero.name === 'ノーラ' && data.psVulnerableValue) {
+              const vulnerValue = data.psVulnerableValue;
+              const triggerRate = data.psVulnerableTriggerRate;
+              const baseDamage = data.psVulnerableDamage(exLv);
+              const vulnerBoost = 100 + globalVulnerableBoost;
+              const nolaPSVulnerDamage = baseDamage * (vulnerValue / 100) * (vulnerBoost / 100) * triggerRate;
+              totalASDamage += nolaPSVulnerDamage;
+              totalVulnerableDamage += nolaPSVulnerDamage;
+            }
+
+            // ソフィ・ヒヨリのPS脆弱ダメージ（毎ターン、期待値計算済み）
+            if ((hero.name === 'ソフィ' || hero.name === 'ヒヨリ') && data.psVulnerable) {
+              const psInfo = data.psVulnerable(exLv);
+              const vulnerBoost = 100 + globalVulnerableBoost;
+              const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100);
+              totalASDamage += psvulnerDamage;
+              totalVulnerableDamage += psvulnerDamage;
+            }
+          });
+
           // 全軍突撃の計算（R1重み適用）
           let rushBonus = 0;
           if (useTitan) {
             heroes.forEach((hero, i) => {
               const data = heroData[hero.name];
-              if (!data || data.name === '未実装') return;
+              if (!data || data.name === '未実装' || data.name === '外す') return;
 
               // 全軍突撃装備の検出
               let hasRush = false;
@@ -1346,7 +1766,7 @@
                       const vulnerValue = effect.levels[equip.level - 1];
                       const vulnerCount = effect.counts[equip.level - 1];
                       const lossCoef = effect.lossCoefs[equip.level - 1];
-                      const vulnerBoost = 100 + localVulnerBoosts[i];
+                      const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
                       const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
                                           (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
                                           (vulnerBoost / 100);
@@ -1357,33 +1777,110 @@
               }
             });
             
-            // R1重み（0.32）を適用
-            totalASDamage += rushBonus * 0.32;
+            // R1重み（火力用）を適用
+            const rushContribution = rushBonus * powerRoundWeights[0];
+            totalASDamage += rushContribution;
           }
 
           let heroBasePower = (100 + totalAttackBuff) / 100;
           let heroBaseDurability = (100 + totalShieldBuff) / 100;
 
-          // 戦場洞察と補足不能の効果を適用
-          if (useTitan) {
-            heroBasePower *= (buffs.damageIncrease + 100 + totalInsightValue) / (buffs.damageIncrease + 100);
-            heroBaseDurability *= (buffs.damageReduction + 100 + totalElusivenessValue) / (buffs.damageReduction + 100);
+          // ダメ増・ダメ減補正係数の計算
+          // 補正係数 = (タイタン等による加算 + 元のバフ+100%) / (元のバフ+100%)
+          let damageIncreaseCoeff = 1.0;
+          let damageReductionCoeff = 1.0;
+          
+          // ソフィ編成ボーナス（ダメ増減各+20%）※ヒヨリ単独では発動しない
+          let sofiDamageBoost = 0;
+          const hasHiyori = heroes.some(h => h.name === 'ヒヨリ');
+          const hasSofi = heroes.some(h => h.name === 'ソフィ');
+          if (hasSofi) {
+            sofiDamageBoost = 20;
+          }
+          
+          // 戦場洞察（タイタンON時）+ ソフィボーナス → ダメ増・ダメ減補正係数
+          const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost;
+          const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost;
+          
+          if (totalDamageIncreaseBonus > 0) {
+            damageIncreaseCoeff = (totalDamageIncreaseBonus + (buffs.damageIncrease + 100)) / (buffs.damageIncrease + 100);
+            heroBasePower *= damageIncreaseCoeff;
+          }
+          if (totalDamageReductionBonus > 0) {
+            damageReductionCoeff = (totalDamageReductionBonus + (buffs.damageReduction + 100)) / (buffs.damageReduction + 100);
+            heroBaseDurability *= damageReductionCoeff;
           }
 
+          // 鉄壁耐久補正の計算（破壊不能対応、各英雄で計算して最大値を採用）
+          // タイタンOFFでも英雄の基礎値は適用される
           let ironWallCorrection = 1.0;
+          
           if (hasIronWall) {
-            if (maxIronWallExLv < 5) {
-              ironWallCorrection = 1.21;
-            } else if (maxIronWallExLv === 5) {
-              ironWallCorrection = 1.516;
-            } else {
-              ironWallCorrection = 1.8;
-            }
+            let maxCorrection = 1.0;
+            
+            heroes.forEach((hero, i) => {
+              const data = heroData[hero.name];
+              if (!data || data.name === '未実装' || data.name === '外す' || !data.ironWallValue) return;
+              
+              const exLv = hero.exclusiveLv;
+              const ironValue = data.ironWallValue(exLv);
+              const ironRounds = data.ironWallRounds ? data.ironWallRounds(exLv) : 1;
+              
+              // 基礎鉄壁耐久係数（タイタンOFFでも適用）
+              let baseCorrection = 1.0;
+              if (exLv < 5) {
+                baseCorrection = 1.21;
+              } else if (exLv === 5) {
+                baseCorrection = 1.516;
+              } else {
+                baseCorrection = 1.8;
+              }
+              
+              // 破壊不能による補正（タイタンONのみ）
+              let destructibleBonus = 0;
+              if (useTitan) {
+                titanEquip[i].forEach((equip, slotIdx) => {
+                  if (equip.effect === '破壊不能' && slotNames[slotIdx] === 'armor') {
+                    const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破壊不能');
+                    if (effect && effect.levels) {
+                      const destructibleValue = effect.levels[equip.level - 1];
+                      
+                      // 破壊不能重み = (鉄壁ラウンド数+1)のラウンド重み
+                      // R1,R2,R3,R4以降 → index 0,1,2,3
+                      const roundIndex = Math.min(ironRounds, durabilityRoundWeights.length - 1);
+                      const destructibleWeight = durabilityRoundWeights[roundIndex];
+                      
+                      // 専用倍率込みの鉄壁値（％）
+                      const adjustedIronValue = ironValue * exclusiveMultipliers[exLv];
+                      
+                      // 補正計算: ((破壊不能重み/(1-(鉄壁値% × 破壊不能値%))) - 破壊不能重み)
+                      const denominator = 1 - (adjustedIronValue / 100) * (destructibleValue / 100);
+                      if (denominator > 0) {
+                        destructibleBonus = (destructibleWeight / denominator) - destructibleWeight;
+                      }
+                    }
+                  }
+                });
+              }
+              
+              let finalCorrection = baseCorrection + destructibleBonus;
+              
+              // 上限チェック
+              if (exLv >= 7) {
+                finalCorrection = Math.min(finalCorrection, 3.33);
+              } else if (exLv >= 5) {
+                finalCorrection = Math.min(finalCorrection, 2.0);
+              }
+              
+              maxCorrection = Math.max(maxCorrection, finalCorrection);
+            });
+            
+            ironWallCorrection = maxCorrection;
           }
 
           const passiveDamage = totalPSDamage;
           const heroPower = heroBasePower * (passiveDamage + totalASDamage) / 100;
-          const heroDurability = heroBaseDurability * ironWallCorrection * debuffDurabilityCorrection;
+          const heroDurability = heroBaseDurability * ironWallCorrection * totalDebuffDurabilityCorrection;
           const heroStrength = heroPower * heroDurability;
 
           // ダメージ属性の構造（将来的な拡張用）
@@ -1402,15 +1899,25 @@
           const rushRatio = totalASBullets > 0 ? 
             (totalASDamage / (totalASDamage + passiveDamage)) / totalASBullets : 
             0;
+          
+          // 直接ダメージ総計／弾数 = (全直接ダメージ + 脆弱ダメージ) / 直接ダメージ弾数期待値
+          const directDamagePerBullet = totalDirectBullets > 0 ?
+            (totalDirectDamage + totalVulnerableDamage) / totalDirectBullets :
+            0;
 
           return {
             heroBasePower,
             heroBaseDurability,
+            damageIncreaseCoeff,
+            damageReductionCoeff,
             totalASDamage,
             passiveDamage,
             ironWallCorrection,
             debuffDurabilityCorrection,
+            armorDurabilityCorrection,
+            totalDebuffDurabilityCorrection,
             rushRatio,
+            directDamagePerBullet,
             heroPower,
             heroDurability,
             heroStrength
@@ -1425,6 +1932,65 @@
           return ((withVal - withoutVal) / withoutVal * 100).toFixed(1);
         };
 
+        // 予想戦闘ターンの計算
+        const calculateExpectedRounds = (myRatio, enemyRatio, powerDiff) => {
+          // α = √(自火力耐久比) / √(想定戦力差 / 敵火力耐久比)
+          const alpha = Math.sqrt(myRatio) / Math.sqrt(powerDiff / enemyRatio);
+          
+          // β = √(想定戦力差 × 敵火力耐久比) / √(1 / 自火力耐久比)
+          const beta = Math.sqrt(powerDiff * enemyRatio) / Math.sqrt(1 / myRatio);
+          
+          // hpRratio = √(敵火力耐久比 / (想定戦力差 × 自火力耐久比))
+          const hpRratio = Math.sqrt(enemyRatio / (powerDiff * myRatio));
+          
+          // 最大値 = 2 / √(α × β)
+          const maxRoundLength = 2 / Math.sqrt(alpha * beta);
+          
+          let roundLength;
+          
+          // ①想定戦力差がそのままの方が小さい場合 (powerDiff < 1/powerDiff)
+          // つまり powerDiff < 1
+          if (powerDiff < 1 / powerDiff) {
+            // roundLength = 1/√(α×β) × arctanh(√(β/α) × 1/hpRatio)
+            const arg = Math.sqrt(beta / alpha) * (1 / hpRratio);
+            
+            // atanhの引数は-1から1の範囲でなければならない
+            if (Math.abs(arg) >= 1) {
+              // 発散する場合は最大値を使用
+              roundLength = maxRoundLength;
+            } else {
+              roundLength = (1 / Math.sqrt(alpha * beta)) * Math.atanh(arg);
+              
+              // 発散対策：最大値を超えた場合
+              if (!isFinite(roundLength) || roundLength > maxRoundLength) {
+                roundLength = maxRoundLength;
+              }
+            }
+          } else {
+            // ②逆数の方が小さい場合 (1/powerDiff < powerDiff)
+            // つまり powerDiff > 1
+            // roundLength = 1/√(α×β) × arctanh(√(α/β) × hpRatio)
+            const arg = Math.sqrt(alpha / beta) * hpRratio;
+            
+            // atanhの引数は-1から1の範囲でなければならない
+            if (Math.abs(arg) >= 1) {
+              // 発散する場合は最大値を使用
+              roundLength = maxRoundLength;
+            } else {
+              roundLength = (1 / Math.sqrt(alpha * beta)) * Math.atanh(arg);
+              
+              // 発散対策：最大値を超えた場合
+              if (!isFinite(roundLength) || roundLength > maxRoundLength) {
+                roundLength = maxRoundLength;
+              }
+            }
+          }
+          
+          return roundLength;
+        };
+        
+        const expectedRounds = calculateExpectedRounds(buffs.myPowerDurabilityRatio, buffs.enemyPowerDurabilityRatio, buffs.powerDiff);
+
         return {
           typeWarning,
           compatDurability,
@@ -1436,18 +2002,36 @@
           compatTroopSoldierDurability,
           compatTroopSoldierPower,
           compatTroopSoldierStrength,
+          expectedRounds,
           ...withTitan,
+          // 編成総合評価
+          totalPower: withTitan.heroPower * compatTroopSoldierPower,
+          totalDurability: withTitan.heroDurability * compatTroopSoldierDurability,
+          // 総合強さ値は1B^2がかからないように計算
+          totalStrength: (withTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
           increases: {
             heroBasePower: calcIncrease(withTitan.heroBasePower, withoutTitan.heroBasePower),
             heroBaseDurability: calcIncrease(withTitan.heroBaseDurability, withoutTitan.heroBaseDurability),
+            damageIncreaseCoeff: calcIncrease(withTitan.damageIncreaseCoeff, withoutTitan.damageIncreaseCoeff),
+            damageReductionCoeff: calcIncrease(withTitan.damageReductionCoeff, withoutTitan.damageReductionCoeff),
             totalASDamage: calcIncrease(withTitan.totalASDamage, withoutTitan.totalASDamage),
             passiveDamage: calcIncrease(withTitan.passiveDamage, withoutTitan.passiveDamage),
+            ironWallCorrection: calcIncrease(withTitan.ironWallCorrection, withoutTitan.ironWallCorrection),
+            debuffDurabilityCorrection: calcIncrease(withTitan.debuffDurabilityCorrection, withoutTitan.debuffDurabilityCorrection),
+            armorDurabilityCorrection: calcIncrease(withTitan.armorDurabilityCorrection, withoutTitan.armorDurabilityCorrection),
+            totalDebuffDurabilityCorrection: calcIncrease(withTitan.totalDebuffDurabilityCorrection, withoutTitan.totalDebuffDurabilityCorrection),
             heroPower: calcIncrease(withTitan.heroPower, withoutTitan.heroPower),
             heroDurability: calcIncrease(withTitan.heroDurability, withoutTitan.heroDurability),
-            heroStrength: calcIncrease(withTitan.heroStrength, withoutTitan.heroStrength)
+            heroStrength: calcIncrease(withTitan.heroStrength, withoutTitan.heroStrength),
+            totalPower: calcIncrease(withTitan.heroPower * compatTroopSoldierPower, withoutTitan.heroPower * compatTroopSoldierPower),
+            totalDurability: calcIncrease(withTitan.heroDurability * compatTroopSoldierDurability, withoutTitan.heroDurability * compatTroopSoldierDurability),
+            totalStrength: calcIncrease(
+              (withTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
+              (withoutTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withoutTitan.heroDurability * compatTroopSoldierDurability / 1000000000)
+            )
           }
         };
-      }, [buffs, compatibility, heroes, titanEquip, titanEnabled]);
+      }, [buffs, compatibility, heroes, titanEquip, titanEnabled, powerRoundWeights, durabilityRoundWeights]);
 
       return (
         <div className="container">
@@ -1461,24 +2045,16 @@
             <p>by Napo  feat.Sonnet</p>
           </div>
 
-          {/* 兵種不一致の警告 */}
-          {(() => {
-            const types = heroes.map(h => heroData[h.name]?.type).filter(t => t && t !== '汎用');
-            const uniqueTypes = [...new Set(types)];
-            return uniqueTypes.length > 1 && (
-              <div className="warning">
-                <AlertIcon />
-                英雄の兵種が異なります
-              </div>
-            );
-          })()}
-
           <div className="grid">
             {/* 左カラム：バフ設定 */}
             <div className="space-y-6">
               <div className="card">
-                <h2><ShieldIcon /> バフ設定</h2>
-                <div className="space-y-3">
+                <div className="card-header" onClick={() => toggleTab('buffs')}>
+                  <h2><ShieldIcon /> バフ設定</h2>
+                  <span className={`collapse-icon ${!expandedTabs.buffs ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.buffs ? 'hidden' : ''}`}>
+                  <div className="space-y-3">
                   <div className="form-group">
                     <label className="form-label">出撃数</label>
                     <input
@@ -1527,17 +2103,22 @@
                       onChange={(e) => updateBuff('baseShield', e.target.value)}
                       className="form-select"
                     >
-                      {[5, 18, 23, 28, 40, 45].map(val => (
+                      {[0, 5, 18, 23, 28, 33, 40, 45].map(val => (
                         <option key={val} value={val}>{val}</option>
                       ))}
                     </select>
                   </div>
                 </div>
+                </div>
               </div>
 
               <div className="card">
-                <h2><SwordsIcon /> 相性環境設定</h2>
-                <div className="space-y-3">
+                <div className="card-header" onClick={() => toggleTab('environment')}>
+                  <h2><SwordsIcon /> 相性環境設定</h2>
+                  <span className={`collapse-icon ${!expandedTabs.environment ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.environment ? 'hidden' : ''}`}>
+                  <div className="space-y-3">
                   <div className="form-group">
                     <label className="form-label">兵種相性設定 (%)</label>
                     <input
@@ -1593,6 +2174,7 @@
                     <input
                       type="number"
                       step="0.1"
+                      min="0"
                       value={buffs.powerDiff}
                       onChange={(e) => updateBuff('powerDiff', e.target.value)}
                       className="form-input"
@@ -1600,7 +2182,87 @@
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">敵の（追撃火力／総火力）／弾数</label>
+                    <label className="form-label">敵の火力／耐久比（0.1～0.5）</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.1"
+                      max="0.5"
+                      value={buffs.enemyPowerDurabilityRatio}
+                      onChange={(e) => updateBuff('enemyPowerDurabilityRatio', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">自編成の火力／耐久比（0.1～0.5）</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0.1"
+                      max="0.5"
+                      value={buffs.myPowerDurabilityRatio}
+                      onChange={(e) => updateBuff('myPowerDurabilityRatio', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  {/* 予想戦闘ターン表示 */}
+                  <div className="result-box" style={{ background: 'rgba(59, 130, 246, 0.2)', marginTop: '0.5rem' }}>
+                    <div className="result-label">予想戦闘ターン</div>
+                    <div className="result-value value-blue">{formatNumber(calculations.expectedRounds)}</div>
+                  </div>
+
+                  {/* ラウンド重み係数 */}
+                  <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
+                    <div style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: '#fbbf24' }}>火力ラウンド重み係数</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+                      {['R1', 'R2', 'R3', 'R4以降'].map((label, idx) => (
+                        <div key={idx} className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>{label}</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={powerRoundWeights[idx]}
+                            onChange={(e) => {
+                              const newWeights = [...powerRoundWeights];
+                              newWeights[idx] = parseFloat(e.target.value) || 0;
+                              setPowerRoundWeights(newWeights);
+                            }}
+                            className="form-input"
+                            style={{ fontSize: '0.875rem' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
+                    <div style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: '#86efac' }}>耐久ラウンド重み係数</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+                      {['R1', 'R2', 'R3', 'R4以降'].map((label, idx) => (
+                        <div key={idx} className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>{label}</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={durabilityRoundWeights[idx]}
+                            onChange={(e) => {
+                              const newWeights = [...durabilityRoundWeights];
+                              newWeights[idx] = parseFloat(e.target.value) || 0;
+                              setDurabilityRoundWeights(newWeights);
+                            }}
+                            className="form-input"
+                            style={{ fontSize: '0.875rem' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 敵の追撃火力比率 */}
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label className="form-label">敵の（追撃火力／総火力）／弾数（重甲の計算用）</label>
                     <input
                       type="number"
                       step="0.01"
@@ -1610,36 +2272,25 @@
                     />
                   </div>
                 </div>
+                </div>
               </div>
             </div>
 
             {/* 中央カラム：英雄設定 */}
             <div className="space-y-6">
               <div className="card">
-                <h2><UsersIcon /> プリセット選択</h2>
-                <div className="preset-grid">
-                  {Object.entries(presets).map(([num, names]) => (
-                    <button
-                      key={num}
-                      onClick={() => selectPreset(parseInt(num))}
-                      className="preset-btn"
-                    >
-                      <span className="preset-label">プリセット{num}</span>
-                      <span className="preset-heroes">{names.join('・')}</span>
-                    </button>
-                  ))}
+                <div className="card-header" onClick={() => toggleTab('heroes')}>
+                  <h2><UsersIcon /> 英雄設定</h2>
+                  <span className={`collapse-icon ${!expandedTabs.heroes ? 'collapsed' : ''}`}>▼</span>
                 </div>
-              </div>
-
-              <div className="card">
-                <h2>英雄設定</h2>
+                {/* 兵種不一致の警告：常時表示（タブ折りたたみに関わらず） */}
                 {calculations.typeWarning && (
                   <div style={{
                     background: 'rgba(220, 38, 38, 0.2)',
                     border: '1px solid rgba(239, 68, 68, 0.5)',
                     borderRadius: '0.375rem',
-                    padding: '0.75rem',
-                    marginBottom: '1rem',
+                    padding: '0.5rem 0.75rem',
+                    marginBottom: '0.5rem',
                     color: '#fca5a5',
                     fontWeight: '600',
                     fontSize: '0.875rem'
@@ -1647,6 +2298,27 @@
                     {calculations.typeWarning}
                   </div>
                 )}
+                <div className={`card-content ${!expandedTabs.heroes ? 'hidden' : ''}`}>
+                
+                {/* プリセット選択（コンパクト） */}
+                <div style={{ marginBottom: '1rem' }}>
+                  <label className="form-label" style={{ marginBottom: '0.5rem' }}>プリセット選択</label>
+                  <div className="preset-grid">
+                    {Object.entries(presets).map(([num, names]) => (
+                      <button
+                        key={num}
+                        onClick={() => selectPreset(parseInt(num))}
+                        className="preset-btn"
+                        style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+                      >
+                        <span className="preset-label">P{num}</span>
+                        <span className="preset-heroes" style={{ fontSize: '0.75rem' }}>{names.join('・')}</span>
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                {/* 英雄個別設定 */}
                 <div className="space-y-4">
                   {heroes.map((hero, i) => (
                     <div key={i} className="hero-card">
@@ -1691,10 +2363,15 @@
                     </div>
                   ))}
                 </div>
+                </div>
               </div>
 
               <div className="card">
-                <h2><SettingsIcon /> タイタン装備</h2>
+                <div className="card-header" onClick={() => toggleTab('titanEquip')}>
+                  <h2><SettingsIcon /> タイタン装備</h2>
+                  <span className={`collapse-icon ${!expandedTabs.titanEquip ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.titanEquip ? 'hidden' : ''}`}>
                 
                 <div className="toggle-container">
                   <div 
@@ -1711,55 +2388,65 @@
                 <div className="space-y-6">
                   {heroes.map((hero, heroIdx) => (
                     <div key={heroIdx} className="titan-section">
-                      <div className="titan-hero-name">{hero.name}</div>
-                      <div className="space-y-3">
-                        {slotNames.map((slotName, slotIdx) => {
-                          const Icon = slotIcons[slotName];
-                          return (
-                            <div key={slotIdx} className="titan-slot">
-                              <div className="titan-slot-header">
-                                <Icon />
-                                <span>{slotDisplayNames[slotIdx]}</span>
-                              </div>
-                              <div className="titan-slot-grid">
-                                <select
-                                  value={titanEquip[heroIdx][slotIdx].effect}
-                                  onChange={(e) => updateTitan(heroIdx, slotIdx, 'effect', e.target.value)}
-                                  className="form-select"
-                                  style={{ fontSize: '0.875rem' }}
-                                >
-                                  <option value="">選択なし</option>
-                                  {titanEffects[slotName].effects.map((eff, i) => (
-                                    <option key={i} value={eff.name}>
-                                      {eff.name} ({eff.desc})
-                                    </option>
-                                  ))}
-                                </select>
-                                {titanEquip[heroIdx][slotIdx].effect && (
+                      <div 
+                        className="card-header" 
+                        onClick={() => toggleTitanHero(heroIdx)}
+                        style={{ cursor: 'pointer', marginBottom: '0.5rem' }}
+                      >
+                        <div className="titan-hero-name" style={{ margin: 0 }}>{hero.name}</div>
+                        <span className={`collapse-icon ${!expandedTitanHeroes[heroIdx] ? 'collapsed' : ''}`}>▼</span>
+                      </div>
+                      {expandedTitanHeroes[heroIdx] && (
+                        <div className="space-y-3">
+                          {slotNames.map((slotName, slotIdx) => {
+                            const Icon = slotIcons[slotName];
+                            return (
+                              <div key={slotIdx} className="titan-slot">
+                                <div className="titan-slot-header">
+                                  <Icon />
+                                  <span>{slotDisplayNames[slotIdx]}</span>
+                                </div>
+                                <div className="titan-slot-grid">
                                   <select
-                                    value={titanEquip[heroIdx][slotIdx].level}
-                                    onChange={(e) => updateTitan(heroIdx, slotIdx, 'level', parseInt(e.target.value))}
+                                    value={titanEquip[heroIdx][slotIdx].effect}
+                                    onChange={(e) => updateTitan(heroIdx, slotIdx, 'effect', e.target.value)}
                                     className="form-select"
                                     style={{ fontSize: '0.875rem' }}
                                   >
-                                    {(() => {
-                                      const effect = titanEffects[slotName].effects.find(
-                                        e => e.name === titanEquip[heroIdx][slotIdx].effect
-                                      );
-                                      const maxLv = effect ? effect.levels.length : 7;
-                                      return Array.from({ length: maxLv }, (_, i) => (
-                                        <option key={i} value={i + 1}>Lv {i + 1}</option>
-                                      ));
-                                    })()}
+                                    <option value="">選択なし</option>
+                                    {titanEffects[slotName].effects.map((eff, i) => (
+                                      <option key={i} value={eff.name}>
+                                        {eff.name} ({eff.desc})
+                                      </option>
+                                    ))}
                                   </select>
-                                )}
+                                  {titanEquip[heroIdx][slotIdx].effect && (
+                                    <select
+                                      value={titanEquip[heroIdx][slotIdx].level}
+                                      onChange={(e) => updateTitan(heroIdx, slotIdx, 'level', parseInt(e.target.value))}
+                                      className="form-select"
+                                      style={{ fontSize: '0.875rem' }}
+                                    >
+                                      {(() => {
+                                        const effect = titanEffects[slotName].effects.find(
+                                          e => e.name === titanEquip[heroIdx][slotIdx].effect
+                                        );
+                                        const maxLv = effect ? effect.levels.length : 7;
+                                        return Array.from({ length: maxLv }, (_, i) => (
+                                          <option key={i} value={i + 1}>Lv {i + 1}</option>
+                                        ));
+                                      })()}
+                                    </select>
+                                  )}
+                                </div>
                               </div>
-                            </div>
-                          );
-                        })}
-                      </div>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   ))}
+                </div>
                 </div>
               </div>
             </div>
@@ -1767,50 +2454,76 @@
             {/* 右カラム：計算結果 */}
             <div className="space-y-6">
               <div className="card">
-                <h2 style={{ color: '#86efac' }}>バフ相性計算</h2>
-                <div className="space-y-2">
-                  <div className="result-box">
-                    <div className="result-label">バフ相性耐久</div>
-                    <div className="result-value value-green">{formatNumber(calculations.compatDurability)}</div>
+                <div className="card-header" onClick={() => toggleTab('buffCalc')}>
+                  <h2 style={{ color: '#86efac' }}>バフ相性計算</h2>
+                  <span className={`collapse-icon ${!expandedTabs.buffCalc ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.buffCalc ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
+                  {/* 耐久と火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">バフ相性耐久</div>
+                      <div className="result-value value-green">{formatNumber(calculations.compatDurability)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">バフ相性火力</div>
+                      <div className="result-value value-red">{formatNumber(calculations.compatPower)}</div>
+                    </div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">バフ相性火力</div>
-                    <div className="result-value value-red">{formatNumber(calculations.compatPower)}</div>
-                  </div>
-                  <div className="result-box">
+                  
+                  {/* 強さ値（強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
                     <div className="result-label">バフ相性強さ値</div>
-                    <div className="result-value value-yellow">{formatNumber(calculations.compatStrength)}</div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatStrength)}</div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">バフ相性出撃耐久</div>
-                    <div className="result-value value-green">{formatNumber(calculations.compatTroopDurability)}</div>
+                  
+                  {/* 出撃耐久と火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">バフ相性出撃耐久</div>
+                      <div className="result-value value-green">{formatNumber(calculations.compatTroopDurability)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">バフ相性出撃火力</div>
+                      <div className="result-value value-red">{formatNumber(calculations.compatTroopPower)}</div>
+                    </div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">バフ相性出撃火力</div>
-                    <div className="result-value value-red">{formatNumber(calculations.compatTroopPower)}</div>
-                  </div>
-                  <div className="result-box">
+                  
+                  {/* 出撃強さ値（強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
                     <div className="result-label">バフ相性出撃強さ値</div>
-                    <div className="result-value value-yellow">{formatNumber(calculations.compatTroopStrength)}</div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopStrength)}</div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">バフ相性出撃兵士耐久</div>
-                    <div className="result-value value-green">{formatNumber(calculations.compatTroopSoldierDurability)}</div>
+                  
+                  {/* 兵士耐久と火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">バフ相性出撃兵士耐久</div>
+                      <div className="result-value value-green">{formatNumber(calculations.compatTroopSoldierDurability)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">バフ相性出撃兵士火力</div>
+                      <div className="result-value value-red">{formatNumber(calculations.compatTroopSoldierPower)}</div>
+                    </div>
                   </div>
-                  <div className="result-box">
-                    <div className="result-label">バフ相性出撃兵士火力</div>
-                    <div className="result-value value-red">{formatNumber(calculations.compatTroopSoldierPower)}</div>
-                  </div>
-                  <div className="result-box">
+                  
+                  {/* 兵士強さ値（強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
                     <div className="result-label">バフ相性出撃兵士強さ値</div>
-                    <div className="result-value value-purple">{formatNumber(calculations.compatTroopSoldierStrength)}</div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopSoldierStrength)}</div>
                   </div>
+                </div>
                 </div>
               </div>
 
               <div className="card">
-                <h2 style={{ color: '#c084fc' }}>英雄計算</h2>
-                <div className="space-y-2">
+                <div className="card-header" onClick={() => toggleTab('heroCalc')}>
+                  <h2 style={{ color: '#c084fc' }}>英雄計算</h2>
+                  <span className={`collapse-icon ${!expandedTabs.heroCalc ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.heroCalc ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
                   {/* 火力と耐久の項目を2列並び */}
                   <div className="result-grid-2">
                     <div className="result-box">
@@ -1856,12 +2569,22 @@
 
                   <div className="result-grid-2">
                     <div className="result-box">
-                      <div className="result-label">鉄壁耐久補正</div>
+                      <div className="result-label">
+                        <span>鉄壁耐久補正</span>
+                        {titanEnabled && calculations.increases.ironWallCorrection > 0 && (
+                          <span className="result-increase">+{calculations.increases.ironWallCorrection}%</span>
+                        )}
+                      </div>
                       <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
                     </div>
                     <div className="result-box">
-                      <div className="result-label">衰弱耐久補正</div>
-                      <div className="result-value value-blue">{formatNumber(calculations.debuffDurabilityCorrection)}</div>
+                      <div className="result-label">
+                        <span>衰弱等耐久補正</span>
+                        {titanEnabled && calculations.increases.totalDebuffDurabilityCorrection > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalDebuffDurabilityCorrection}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-blue" style={{ fontWeight: 'bold' }}>{formatNumber(calculations.totalDebuffDurabilityCorrection)}</div>
                     </div>
                   </div>
 
@@ -1888,14 +2611,14 @@
                       {formatNumber(calculations.heroDurability)}倍
                     </div>
                   </div>
-                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(91, 33, 182, 0.3), rgba(109, 40, 217, 0.3))' }}>
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.3), rgba(234, 179, 8, 0.3))' }}>
                     <div className="result-label">
                       <span>英雄強さ値</span>
                       {titanEnabled && calculations.increases.heroStrength > 0 && (
                         <span className="result-increase">+{calculations.increases.heroStrength}%</span>
                       )}
                     </div>
-                    <div className="result-value value-purple" style={{ fontSize: '1.5rem' }}>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.5rem' }}>
                       {formatNumber(calculations.heroStrength)}
                     </div>
                   </div>
@@ -1905,6 +2628,63 @@
                     <div className="result-label">（追撃火力／総火力）／弾数</div>
                     <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
                   </div>
+                  
+                  {/* 直接ダメージ総計／弾数 */}
+                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
+                    <div className="result-label">直接ダメージ総計／弾数</div>
+                    <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamagePerBullet)}%</div>
+                  </div>
+                </div>
+                </div>
+              </div>
+
+              {/* 編成総合評価 */}
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('totalEval')}>
+                  <h2 style={{ color: '#fde047' }}>編成総合評価</h2>
+                  <span className={`collapse-icon ${!expandedTabs.totalEval ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.totalEval ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
+                  {/* 総合耐久と総合火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>総合耐久</span>
+                        {titanEnabled && calculations.increases.totalDurability > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalDurability}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-green" style={{ fontSize: '1.25rem' }}>
+                        {formatNumber(calculations.totalDurability)}
+                      </div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>総合火力</span>
+                        {titanEnabled && calculations.increases.totalPower > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalPower}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-red" style={{ fontSize: '1.25rem' }}>
+                        {formatNumber(calculations.totalPower)}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* 編成総合強さ値（大きく強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.4), rgba(234, 179, 8, 0.4))', marginTop: '0.5rem' }}>
+                    <div className="result-label">
+                      <span>編成総合強さ値</span>
+                      {titanEnabled && calculations.increases.totalStrength > 0 && (
+                        <span className="result-increase">+{calculations.increases.totalStrength}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-yellow" style={{ fontSize: '2rem', fontWeight: '900' }}>
+                      {formatNumber(calculations.totalStrength)}
+                    </div>
+                  </div>
+                </div>
                 </div>
               </div>
             </div>
