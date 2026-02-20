@@ -772,7 +772,7 @@
         attackBuff: (ex) => 100 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => ex >= 7 ? 120 : 70,
         asRate: 37,
-        asDamage: (ex) => 50 * exclusiveMultipliers[ex],
+        asDamage: (ex) => 60 * exclusiveMultipliers[ex],
         asBullets: (ex) => ex >= 5 ? 5 : 4,
         asExtraEffect: (ex, hasCombo) => hasCombo ? { damage: 50, bullets: (ex >= 5 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null
       },
@@ -811,7 +811,21 @@
         globalDebuffBoost: (ex) => ex >= 5 ? 40 : 0,
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
         globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : 1.0,
-        specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.25 : 1.0,
+        specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.22 : 1.0,
+        specialHeroes: ['ミーク', 'アイリス', 'ソフィ', 'ヒヨリ']
+      },
+      'ツバキ': {
+        type: '海軍',
+        attackBuff: (ex) => 108 * exclusiveMultipliers[ex],
+        // PSの衰弱付与（1ラウンドに1度）
+        psDebuffValue: 30,
+        psDebuffCount: (ex) => ex >= 7 ? 4 : 3,
+        psDebuffRate: (ex) => ex >= 7 ? 44.4 : 33.3,
+        // グローバル効果
+        globalDebuffBoost: (ex) => ex >= 5 ? 40 : 0,
+        globalVulnerableBoost: (ex) => ex >= 5 ? 40 : 0,
+        globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : 1.0,
+        specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.22 : 1.0,
         specialHeroes: ['ミーク', 'アイリス', 'ソフィ', 'ヒヨリ']
       },
       'ルネ': {
@@ -822,6 +836,61 @@
         asDamage: (ex) => 150 * exclusiveMultipliers[ex],
         asBullets: (ex) => ex >= 5 ? 4 : 3,
         magneticBulletsBonus: (ex) => ex >= 7 ? 1.0 : 0.5
+      },
+      'アカネ': {
+        type: '陸軍',
+        attackBuff: (ex) => 95 * exclusiveMultipliers[ex],
+        magneticBoost: (ex) => ex >= 3 ? 110 : 20,
+        asRate: 37,
+        asDamage: (ex) => 55 * exclusiveMultipliers[ex],
+        asBullets: 4,
+        // AS拡散ダメ（複雑な計算が必要）
+        asScatterDamage: (ex, magneticBulletsExpected, magneticHeroCount) => {
+          const baseDamage = ex >= 7 ? 30 : 10;
+          const adjustedMagnetic = magneticBulletsExpected / (1 + magneticHeroCount);
+          const scatterMultiplier = Math.min(adjustedMagnetic * 9 / 13.3, 5);
+          const scatterBullets = ex >= 5 ? 2 : 1;
+          return { damage: baseDamage * scatterMultiplier, bullets: scatterBullets };
+        },
+        // PS磁気（専用7以上で各ラウンドに1度）
+        psMagnetic: (ex) => ex >= 7 ? { value: 50, count: 6, rate: 0.11 } : null
+      },
+      'アリア＆ティナ': {
+        type: '汎用',
+        attackBuff: (ex) => 90 * exclusiveMultipliers[ex],
+        asRate: (ex) => ex >= 5 ? 35 : 27,
+        asDamage: (ex) => {
+          const baseDamage = 130 * exclusiveMultipliers[ex];
+          const bonusDamage = ex >= 7 ? 130 : 0;
+          return baseDamage + bonusDamage;
+        },
+        asBullets: 3,
+        // 脆弱の敵にAS命中時のダメージ変化（確率：脆弱数期待値／直接攻撃弾数期待値）
+        asVulnerableBonus: 190,
+        // PS脆弱付与（専5以上で1ラウンドに1度）
+        psVulnerable: (ex) => {
+          if (ex < 5) return null;
+          const count = ex >= 7 ? 4 : 2;
+          return { value: 30, count: count, rate: 0.11 };
+        }
+      },
+      'フェルム': {
+        type: '陸軍',
+        attackBuff: (ex) => 90 * exclusiveMultipliers[ex],
+        magneticBoost: (ex) => {
+          if (ex >= 7) return 30 + 40 + 30; // 100
+          if (ex >= 5) return 30 + 40; // 70
+          return 30;
+        },
+        asRate: 42,
+        asDamage: (ex) => {
+          const baseDamage = 50 * exclusiveMultipliers[ex];
+          const bonusDamage = ex >= 7 ? 30 : 0;
+          return baseDamage + bonusDamage;
+        },
+        asBullets: 4,
+        // PS磁気（専5以上で各ラウンドに1度）
+        psMagnetic: (ex) => ex >= 5 ? { value: 60, count: 5, rate: 0.11 } : null
       },
       'カトレア': { name: '未実装', type: '陸軍' },
       'シャーリー': { name: '未実装', type: '陸軍' },
@@ -1388,6 +1457,13 @@
 
           const hasCombo = heroes.some(h => h.name === 'ペトラ') && heroes.some(h => h.name === 'ミヤ');
 
+          // 磁気数期待値の集計（アカネのAS拡散ダメ計算用）
+          let totalMagneticBulletsExpected = 0;
+          const magneticHeroCount = heroes.filter(h => ['フェルム', 'アカネ', 'ペトラ', 'アスカ'].includes(h.name)).length - 1; // 自分を除く
+          
+          // 脆弱数期待値の集計（アリア＆ティナのASボーナス計算用）
+          let totalVulnerableBulletsExpected = 0;
+
           heroes.forEach((hero, i) => {
             const data = heroData[hero.name];
             if (!data || data.name === '未実装' || data.name === '外す') return;
@@ -1414,7 +1490,9 @@
             }
 
             if (data.asRate && data.asDamage && data.asBullets) {
-              const actualRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
+              // AS発動率の取得（アリア＆ティナは専用レベルに応じて変化）
+              const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
+              const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
               const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
               
               // ソフィ・ヒヨリの異常特攻判定
@@ -1432,7 +1510,16 @@
                 asDamageMultiplier = noraASDamageMultiplier;
               }
               
-              const asDamageAmount = actualRate * damage * bullets * asDamageMultiplier;
+              // アリア＆ティナの脆弱ボーナス計算
+              let finalDamage = damage;
+              if (hero.name === 'アリア＆ティナ' && data.asVulnerableBonus) {
+                const vulnerableProb = totalDirectBullets > 0 ? totalVulnerableBulletsExpected / totalDirectBullets : 0;
+                const normalDamage = damage;
+                const bonusDamage = data.asVulnerableBonus;
+                finalDamage = normalDamage * (1 - vulnerableProb) + bonusDamage * vulnerableProb;
+              }
+              
+              const asDamageAmount = actualRate * finalDamage * bullets * asDamageMultiplier;
               totalASDamage += asDamageAmount;
               
               // 直接ダメージとして追跡
@@ -1450,7 +1537,33 @@
                   const extraDamage = actualRate * extra.damage * adjustedBullets * magneticBoost / 100;
                   totalASDamage += extraDamage;
                   // ペトラの追加磁気は磁気属性なので直接ダメージには含めない
+                  
+                  // ペトラの磁気数を集計
+                  totalMagneticBulletsExpected += actualRate * adjustedBullets;
                 }
+              }
+              
+              // アカネのAS拡散ダメ
+              if (hero.name === 'アカネ' && data.asScatterDamage) {
+                const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
+                const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
+                const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
+                const scatterDamage = actualRate * scatterInfo.damage * scatterInfo.bullets * asDamageMultiplier;
+                totalASDamage += scatterDamage;
+                totalDirectDamage += scatterDamage;
+                totalDirectBullets += actualRate * scatterInfo.bullets;
+              }
+            }
+            
+            // アカネ・フェルムのPS磁気
+            if (data.psMagnetic) {
+              const psInfo = data.psMagnetic(exLv);
+              if (psInfo) {
+                const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
+                const psMagneticDamage = psInfo.rate * psInfo.value * psInfo.count * magneticBoost / 100;
+                totalASDamage += psMagneticDamage;
+                // 磁気数を集計
+                totalMagneticBulletsExpected += psInfo.rate * psInfo.count;
               }
             }
 
@@ -1463,6 +1576,8 @@
                 data.psMagneticDamage;
               const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
               totalPSDamage += damage * bullets * magneticBoost / 100;
+              // ミヤの磁気数を集計
+              totalMagneticBulletsExpected += bullets;
             }
           });
 
@@ -1511,7 +1626,8 @@
             if (!data || data.name === '未実装' || data.name === '外す') return;
 
             const exLv = hero.exclusiveLv;
-            let asRate = data.asRate ? data.asRate * (9 - buffs.silenceCount) / 9 / 100 : 0;
+            const baseRate = data.asRate ? (typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate) : 0;
+            let asRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
 
             // 全軍突撃の有無を確認（タイタンON時のみ）
             let hasRush = false;
@@ -1523,6 +1639,13 @@
 
             // ノーラのPS衰弱付与
             if (hero.name === 'ノーラ' && data.psDebuffValue) {
+              const debuffRate = data.psDebuffRate(exLv) / 100;
+              const enhancedValue = data.psDebuffValue * (100 + globalDebuffBoost) / 100;
+              debuffEffects.push({ value: enhancedValue, rate: debuffRate });
+            }
+
+            // ツバキのPS衰弱付与
+            if (hero.name === 'ツバキ' && data.psDebuffValue) {
               const debuffRate = data.psDebuffRate(exLv) / 100;
               const enhancedValue = data.psDebuffValue * (100 + globalDebuffBoost) / 100;
               debuffEffects.push({ value: enhancedValue, rate: debuffRate });
@@ -1630,6 +1753,8 @@
                     const magneticCount = effect.counts[equip.level - 1];
                     const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
                     totalASDamage += asRate * magneticValue * magneticCount * magneticBoost / 100;
+                    // 磁気数期待値を集計
+                    totalMagneticBulletsExpected += asRate * magneticCount;
                   }
                 }
                 
@@ -1661,6 +1786,8 @@
                     totalASDamage += vulnerDamage;
                     // 脆弱ダメージは脆弱属性として別途追跡（弾数はカウントしない）
                     totalVulnerableDamage += vulnerDamage;
+                    // 脆弱数期待値を集計
+                    totalVulnerableBulletsExpected += asRate * vulnerCount * lossCoef * 0.95;
                   }
                 }
               });
@@ -1692,6 +1819,21 @@
               totalASDamage += psvulnerDamage;
               totalVulnerableDamage += psvulnerDamage;
             }
+            
+            // アリア＆ティナのPS脆弱（専5以上で1ラウンドに1度）
+            if (hero.name === 'アリア＆ティナ' && data.psVulnerable) {
+              const psInfo = data.psVulnerable(exLv);
+              if (psInfo) {
+                const vulnerBoost = 100 + globalVulnerableBoost;
+                // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × 付与数 × 発動率 × 脆弱強化
+                const ariaPSVulnerDamage = psInfo.rate * (totalDirectDamage / (totalDirectBullets || 1)) *
+                                           (psInfo.value / 100) * psInfo.count * (vulnerBoost / 100);
+                totalASDamage += ariaPSVulnerDamage;
+                totalVulnerableDamage += ariaPSVulnerDamage;
+                // 脆弱数期待値を集計
+                totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
+              }
+            }
           });
 
           // 全軍突撃の計算（R1重み適用）
@@ -1715,7 +1857,8 @@
               });
 
               if (hasRush && data.asRate) {
-                const actualRate = data.asRate * (9 - buffs.silenceCount) / 9 / 100;
+                const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
+                const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
                 const exLv = hero.exclusiveLv;
                 
                 // AS直接ダメージの全突分
@@ -1734,6 +1877,12 @@
                     const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
                     rushBonus += actualRate * extra.damage * adjustedBullets * magneticBoost / 100 * (rushValue / 100);
                   }
+                }
+
+                // アカネのAS拡散ダメの全突分
+                if (hero.name === 'アカネ' && data.asScatterDamage) {
+                  const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
+                  rushBonus += actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
                 }
 
                 // 磁場（磁気付与）の全突分
@@ -2170,7 +2319,7 @@
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">想定戦力差（自身の何倍）</label>
+                    <label className="form-label">想定戦力差（強さ値が自身の何倍）</label>
                     <input
                       type="number"
                       step="0.1"
