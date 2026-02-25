@@ -966,8 +966,96 @@
         // AS重甲付与
         asArmor: { count: 3, value: 15 }
       },
-      'レイチェル': { name: '未実装', type: '海軍' },
-      'コレット': { name: '未実装', type: '海軍' },
+      'レイチェル': {
+        type: '海軍',
+        attackBuff: (ex) => 110 * exclusiveMultipliers[ex],
+        // PS収束：被ダメ減シールド種類数 × 35%（専7で70%）のダメ増加算
+        shieldTypesDamageBoost: (ex) => ex >= 7 ? 70 : 35,
+        // PS重甲：2枚固定
+        psArmor: { value: 15, count: 2 },
+        // ダメ減加算：72%
+        damageReductionAddition: 72,
+        // 拡散弾数ボーナス：拡散を持つ英雄の弾数+1
+        scatterBulletBonus: 1,
+        // 拡散ダメ加算：専5以上で+16%、専7でさらに+30%
+        scatterDamageBoost: (ex) => {
+          if (ex >= 7) return 16 + 30; // 46
+          if (ex >= 5) return 16;
+          return 0;
+        },
+        // 専7以上：全重甲枚数×1.3、種類数+0.2ずつ
+        armorMultiplier: (ex) => ex >= 7 ? 1.3 : 1.0,
+        shieldTypesBonus: (ex) => ex >= 7 ? 0.2 : 0,
+        // シールド種類数への貢献：0.5固定（マリナと同時なら高い方）
+        shieldTypesContribution: 0.5
+      },
+      'マリナ': {
+        type: '海軍',
+        attackBuff: (ex) => 105 * exclusiveMultipliers[ex],
+        // PS収束：被ダメ減シールド種類数 × 30%（専7で60%）のダメ増加算
+        shieldTypesDamageBoost: (ex) => ex >= 7 ? 60 : 30,
+        // PS重甲：1枚（専5で+1）
+        psArmor: (ex) => ({ value: 15, count: ex >= 5 ? 2 : 1 }),
+        // ダメ減加算：72%
+        damageReductionAddition: 72,
+        // 拡散弾数ボーナス：専5以上で拡散を持つ英雄の弾数+1
+        scatterBulletBonus: (ex) => ex >= 5 ? 1 : 0,
+        // 拡散ダメ加算：専7以上で+30%
+        scatterDamageBoost: (ex) => ex >= 7 ? 30 : 0,
+        // シールド種類数への貢献：専5以上で0.5、専5未満で0.3
+        shieldTypesContribution: (ex) => ex >= 5 ? 0.5 : 0.3
+      },
+      'コレット': {
+        type: '海軍',
+        shieldBuff: (ex) => 70 * exclusiveMultipliers[ex],
+        asRate: 35,
+        asDamage: (ex) => 90 * exclusiveMultipliers[ex],
+        asBullets: 3,
+        // 拡散ダメ：ASの1発ごとに発動、ASダメ × 40% × 拡散補正 × 2発
+        scatterDamage: {
+          baseRatio: 0.4,
+          baseBullets: 2,
+          // 専5以上：種類数が2.0超のラウンドで超過分×超過量×2発の弾数追加
+          conditionalBullets: (ex, shieldTypes) => {
+            if (ex < 5) return 0;
+            const excess = Math.max(0, shieldTypes - 2.0);
+            return excess * excess * 2;
+          }
+        },
+        // 被ダメ減シールド種類数 × 20%（専7で60%）の拡散ダメ加算
+        shieldTypesScatterBoost: (ex) => ex >= 7 ? 60 : 20,
+        // PS：被ダメ減シールド種類数 × 15%（専7で60%）のダメ減加算
+        shieldTypesDamageReductionBoost: (ex) => ex >= 7 ? 60 : 15,
+        // シールド種類数への貢献：専5以上で0.5、専5未満で0.3
+        shieldTypesContribution: (ex) => ex >= 5 ? 0.5 : 0.3
+      },
+      'ルーシィ': {
+        type: '海軍',
+        shieldBuff: (ex) => 65 * exclusiveMultipliers[ex],
+        asRate: 34,
+        asDamage: (ex) => {
+          const base = 80 * exclusiveMultipliers[ex];
+          const bonus = ex >= 7 ? 90 : 0;
+          return base + bonus;
+        },
+        asBullets: 3,
+        // 拡散ダメ：ASの1発ごとに発動、ASダメ × 30% × 拡散補正 × 2発
+        scatterDamage: {
+          baseRatio: 0.3,
+          baseBullets: 2
+        },
+        // 被ダメ減シールド種類数 × 20%（専5で50%）の拡散ダメ加算
+        shieldTypesScatterBoost: (ex) => ex >= 5 ? 50 : 20,
+        // PS：被ダメ減シールド種類数 × 10%（専7で30%）のダメ減加算
+        shieldTypesDamageReductionBoost: (ex) => ex >= 7 ? 30 : 10,
+        // シールド種類数への貢献：専5以上のみ0.3
+        shieldTypesContribution: (ex) => ex >= 5 ? 0.3 : 0
+      },
+      'スターフ': {
+        type: '海軍',
+        // シールド種類数への貢献：固定0.5
+        shieldTypesContribution: 0.5
+      },
       'リヴィア': { name: '未実装', type: '空軍' },
       'ルチル': { name: '未実装', type: '空軍' },
       'ノルシュ': { name: '未実装', type: '空軍' },
@@ -1152,6 +1240,9 @@
         { name: 'ルネ', exclusiveLv: 0 }
       ]);
 
+      // 一括専用レベル設定（デフォルト: 専用5）
+      const [defaultExclusiveLv, setDefaultExclusiveLv] = useState(5);
+
       const [titanEquip, setTitanEquip] = useState(
         heroes.map(() => slotNames.map(() => ({ effect: '', level: 1 })))
       );
@@ -1174,7 +1265,7 @@
       };
 
       const selectPreset = (presetNum) => {
-        const newHeroes = presets[presetNum].map(name => ({ name, exclusiveLv: 0 }));
+        const newHeroes = presets[presetNum].map(name => ({ name, exclusiveLv: defaultExclusiveLv }));
         setHeroes(newHeroes);
         setTitanEquip(newHeroes.map(() => slotNames.map(() => ({ effect: '', level: 1 }))));
       };
@@ -1182,7 +1273,12 @@
       const updateHero = (index, field, value) => {
         setHeroes(prev => {
           const newHeroes = [...prev];
-          newHeroes[index] = { ...newHeroes[index], [field]: value };
+          if (field === 'name') {
+            // 英雄名が変更された場合、一括専用レベルを適用
+            newHeroes[index] = { name: value, exclusiveLv: defaultExclusiveLv };
+          } else {
+            newHeroes[index] = { ...newHeroes[index], [field]: value };
+          }
           return newHeroes;
         });
       };
@@ -1259,7 +1355,8 @@
             // 陸軍のみ、陸軍と汎用のみ
             if (uniqueTypes.length === 1 && uniqueTypes[0] === '陸軍') {
               totalDirectBullets += 1;
-              return 117 * 1; // 117%
+              // 100% × (ダメ増 + 100 + 17) / (ダメ増 + 100)
+              return 100 * (buffs.damageIncrease + 100 + 17) / (buffs.damageIncrease + 100);
             }
             // その他
             totalDirectBullets += 2.3;
@@ -1361,6 +1458,149 @@
             const data = heroData[h.name];
             return data && data.specialHeroes;
           }) ? heroData[heroes.find(h => heroData[h.name]?.specialHeroes)?.name]?.specialHeroes || [] : [];
+
+          // 被ダメージ減少シールドの種類数の計算（各ラウンド）
+          const shieldTypesPerRound = [0, 0, 0, 0]; // R1, R2, R3, R4
+          
+          // ⓪レイチェル or マリナ専5以上 → +0.5ずつ、マリナ専5未満 → +0.3ずつ
+          const hasRachel = heroes.some(h => h.name === 'レイチェル');
+          const marinaTier = heroes.find(h => h.name === 'マリナ')?.exclusiveLv || -1;
+          const baseShieldBonus = hasRachel || marinaTier >= 5 ? 0.5 : marinaTier >= 0 ? 0.3 : 0;
+          if (baseShieldBonus > 0) {
+            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += baseShieldBonus);
+          }
+          
+          // ①ミーク → +0.2ずつ、アイリス → +0.4ずつ
+          if (heroes.some(h => h.name === 'ミーク')) {
+            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += 0.2);
+          }
+          if (heroes.some(h => h.name === 'アイリス')) {
+            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += 0.4);
+          }
+          
+          // ②コレット専5以上 or スターフ → +0.5ずつ、コレット専5未満 or ルーシィ専5以上 → +0.3ずつ
+          const hasStarf = heroes.some(h => h.name === 'スターフ');
+          const coletTier = heroes.find(h => h.name === 'コレット')?.exclusiveLv || -1;
+          const lucyTier = heroes.find(h => h.name === 'ルーシィ')?.exclusiveLv || -1;
+          const supportShieldBonus = (hasStarf || coletTier >= 5) ? 0.5 : (coletTier >= 0 || lucyTier >= 5) ? 0.3 : 0;
+          if (supportShieldBonus > 0) {
+            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += supportShieldBonus);
+          }
+          
+          // ③鉄壁を持つ英雄がいる場合（hasIronWallはまだ設定されていないため、直接チェック）
+          {
+            let ironWallMaxRounds = 0;
+            heroes.forEach(hero => {
+              const data = heroData[hero.name];
+              if (data && data.ironWallRounds) {
+                const rounds = typeof data.ironWallRounds === 'function' ? data.ironWallRounds(hero.exclusiveLv) : data.ironWallRounds;
+                if (rounds > ironWallMaxRounds) ironWallMaxRounds = rounds;
+              }
+            });
+            if (ironWallMaxRounds > 0) {
+              // 破壊不能チェック（タイタンON時のみ）
+              let hasIndestructible = false;
+              if (useTitan) {
+                heroes.forEach((hero, i) => {
+                  titanEquip[i].forEach((equip, slotIdx) => {
+                    if (equip.effect === '破壊不能' && slotNames[slotIdx] === 'armor') {
+                      hasIndestructible = true;
+                    }
+                  });
+                });
+              }
+              if (hasIndestructible) ironWallMaxRounds += 1;
+              // 鉄壁が存在する各ラウンドに+1
+              for (let i = 0; i < ironWallMaxRounds && i < 4; i++) {
+                shieldTypesPerRound[i] += 1;
+              }
+            }
+          }
+          
+          // ④レイチェル専7 → +0.2ずつ
+          const rachelTier = heroes.find(h => h.name === 'レイチェル')?.exclusiveLv || -1;
+          if (rachelTier >= 7) {
+            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += 0.2);
+          }
+          
+          // 火力重み係数を用いた平均種類数を算出
+          const averageShieldTypes = shieldTypesPerRound.reduce((sum, val, i) => 
+            sum + val * powerRoundWeights[i], 0);
+
+          // 拡散ダメ加算の集計（レイチェル・マリナ・コレット・ルーシィから）
+          let totalScatterDamageBoost = 0;
+          let scatterBulletBonus = 0; // 拡散弾数ボーナス（レイチェル・マリナ）
+          
+          // ダメ減加算の集計（レイチェル・マリナ・コレット・ルーシィから）
+          let totalDamageReductionAddition = 0;
+          
+          // レイチェル・マリナのPS収束によるダメ増加算
+          let shieldTypesDamageIncrease = 0;
+          
+          // レイチェルの重甲倍率
+          let rachelArmorMultiplier = 1.0;
+          
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            const exLv = hero.exclusiveLv;
+            
+            // レイチェル
+            if (hero.name === 'レイチェル') {
+              if (data.scatterDamageBoost) {
+                totalScatterDamageBoost += data.scatterDamageBoost(exLv);
+              }
+              if (data.scatterBulletBonus) {
+                scatterBulletBonus = Math.max(scatterBulletBonus, data.scatterBulletBonus);
+              }
+              if (data.damageReductionAddition) {
+                totalDamageReductionAddition += data.damageReductionAddition;
+              }
+              if (data.shieldTypesDamageBoost) {
+                shieldTypesDamageIncrease += averageShieldTypes * data.shieldTypesDamageBoost(exLv);
+              }
+              if (data.armorMultiplier) {
+                rachelArmorMultiplier = data.armorMultiplier(exLv);
+              }
+            }
+            
+            // マリナ
+            if (hero.name === 'マリナ') {
+              if (data.scatterDamageBoost) {
+                totalScatterDamageBoost += data.scatterDamageBoost(exLv);
+              }
+              if (data.scatterBulletBonus) {
+                const bonus = typeof data.scatterBulletBonus === 'function' ? data.scatterBulletBonus(exLv) : data.scatterBulletBonus;
+                scatterBulletBonus = Math.max(scatterBulletBonus, bonus);
+              }
+              if (data.damageReductionAddition) {
+                totalDamageReductionAddition += data.damageReductionAddition;
+              }
+              if (data.shieldTypesDamageBoost) {
+                shieldTypesDamageIncrease += averageShieldTypes * data.shieldTypesDamageBoost(exLv);
+              }
+            }
+            
+            // コレット
+            if (hero.name === 'コレット') {
+              if (data.shieldTypesScatterBoost) {
+                totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
+              }
+              if (data.shieldTypesDamageReductionBoost) {
+                totalDamageReductionAddition += averageShieldTypes * data.shieldTypesDamageReductionBoost(exLv);
+              }
+            }
+            
+            // ルーシィ
+            if (hero.name === 'ルーシィ') {
+              if (data.shieldTypesScatterBoost) {
+                totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
+              }
+              if (data.shieldTypesDamageReductionBoost) {
+                totalDamageReductionAddition += averageShieldTypes * data.shieldTypesDamageReductionBoost(exLv);
+              }
+            }
+          });
 
 
           // ローカル磁気効果強化（装備した英雄のみに適用）
@@ -1543,7 +1783,7 @@
                 }
               }
               
-              // アカネのAS拡散ダメ
+              // アカネの追加AS直接ダメージ（拡散ダメージではない）
               if (hero.name === 'アカネ' && data.asScatterDamage) {
                 const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
                 const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
@@ -1552,6 +1792,46 @@
                 totalASDamage += scatterDamage;
                 totalDirectDamage += scatterDamage;
                 totalDirectBullets += actualRate * scatterInfo.bullets;
+              }
+              
+              // コレット・ルーシィの拡散ダメージ
+              if ((hero.name === 'コレット' || hero.name === 'ルーシィ') && data.scatterDamage) {
+                const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
+                const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
+                
+                // AS弾数
+                const asBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+                
+                // 拡散基礎ダメージ（ASダメージの一定割合）
+                const baseScatterRatio = data.scatterDamage.baseRatio;
+                const scatterDamageBase = damage * baseScatterRatio;
+                
+                // 拡散ダメ加算補正
+                const scatterBoost = (100 + totalScatterDamageBoost) / 100;
+                const scatterDamagePerBullet = scatterDamageBase * scatterBoost;
+                
+                // 拡散弾数（基礎弾数 + 拡散弾数ボーナス）
+                let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus;
+                
+                // コレット専5以上：種類数が2.0超のラウンドで追加弾数
+                if (hero.name === 'コレット' && data.scatterDamage.conditionalBullets && exLv >= 5) {
+                  // 各ラウンドで追加弾数を計算して火力重みで平均
+                  const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
+                    data.scatterDamage.conditionalBullets(exLv, types));
+                  const avgConditionalBullets = conditionalBulletsPerRound.reduce((sum, val, i) => 
+                    sum + val * powerRoundWeights[i], 0);
+                  scatterBullets += avgConditionalBullets;
+                }
+                
+                // 拡散ダメージ = AS発動率 × 拡散ダメージ/弾 × AS弾数 × 拡散弾数
+                const totalScatterDamage = actualRate * scatterDamagePerBullet * asBullets * scatterBullets;
+                totalASDamage += totalScatterDamage;
+                
+                // 拡散ダメージを直接ダメージとして追跡
+                totalDirectDamage += totalScatterDamage;
+                totalDirectBullets += actualRate * asBullets * scatterBullets;
+                // 追撃火力比率の計算用
+                totalASBullets += actualRate * asBullets * scatterBullets;
               }
             }
             
@@ -1640,21 +1920,21 @@
             // ノーラのPS衰弱付与
             if (hero.name === 'ノーラ' && data.psDebuffValue) {
               const debuffRate = data.psDebuffRate(exLv) / 100;
-              const enhancedValue = data.psDebuffValue * (100 + globalDebuffBoost) / 100;
+              const enhancedValue = data.psDebuffValue * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
               debuffEffects.push({ value: enhancedValue, rate: debuffRate });
             }
 
             // ツバキのPS衰弱付与
             if (hero.name === 'ツバキ' && data.psDebuffValue) {
               const debuffRate = data.psDebuffRate(exLv) / 100;
-              const enhancedValue = data.psDebuffValue * (100 + globalDebuffBoost) / 100;
+              const enhancedValue = data.psDebuffValue * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
               debuffEffects.push({ value: enhancedValue, rate: debuffRate });
             }
 
             // ミーク・アイリスのAS衰弱付与
             if ((hero.name === 'ミーク' || hero.name === 'アイリス') && data.asDebuff) {
               const debuffInfo = data.asDebuff(exLv, hasRush, buffs.silenceCount);
-              const enhancedValue = debuffInfo.value * (100 + globalDebuffBoost) / 100;
+              const enhancedValue = debuffInfo.value * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
               debuffEffects.push({ value: enhancedValue, rate: debuffInfo.rate });
             }
           });
@@ -1725,7 +2005,17 @@
               totalArmorValue += data.asArmor.value;
               totalArmorCount += actualRate * data.asArmor.count;
             }
+            // レイチェルのPS重甲（固定2枚）
+            if (data.psArmor) {
+              totalArmorValue += data.psArmor.value;
+              totalArmorCount += data.psArmor.count;
+            }
           });
+          
+          // レイチェル専7の重甲倍率を適用
+          if (rachelArmorMultiplier > 1.0) {
+            totalArmorCount *= rachelArmorMultiplier;
+          }
           
           if (totalArmorCount > 0 && totalArmorValue > 0) {
             armorDurabilityCorrection = 1 + enemyRushExpected * (totalArmorValue / 100) * totalArmorCount;
@@ -1778,11 +2068,11 @@
                     const lossCoef = effect.lossCoefs[equip.level - 1];
                     const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
                     
-                    // 脆弱ダメージ = (脆弱を含まない直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化
+                    // 脆弱ダメージ = (脆弱を含まない直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化 / 攻撃強化補正
                     // これはASトリガーなので実際AS発動率を掛ける
                     const vulnerDamage = asRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
                                         (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
-                                        (vulnerBoost / 100);
+                                        (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
                     totalASDamage += vulnerDamage;
                     // 脆弱ダメージは脆弱属性として別途追跡（弾数はカウントしない）
                     totalVulnerableDamage += vulnerDamage;
@@ -1805,8 +2095,8 @@
               const vulnerValue = data.psVulnerableValue;
               const triggerRate = data.psVulnerableTriggerRate;
               const baseDamage = data.psVulnerableDamage(exLv);
-              const vulnerBoost = 100 + globalVulnerableBoost;
-              const nolaPSVulnerDamage = baseDamage * (vulnerValue / 100) * (vulnerBoost / 100) * triggerRate;
+              const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
+              const nolaPSVulnerDamage = baseDamage * (vulnerValue / 100) * (vulnerBoost / 100) * triggerRate / ((100 + totalAttackBuff) / 100);
               totalASDamage += nolaPSVulnerDamage;
               totalVulnerableDamage += nolaPSVulnerDamage;
             }
@@ -1814,8 +2104,8 @@
             // ソフィ・ヒヨリのPS脆弱ダメージ（毎ターン、期待値計算済み）
             if ((hero.name === 'ソフィ' || hero.name === 'ヒヨリ') && data.psVulnerable) {
               const psInfo = data.psVulnerable(exLv);
-              const vulnerBoost = 100 + globalVulnerableBoost;
-              const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100);
+              const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
+              const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
               totalASDamage += psvulnerDamage;
               totalVulnerableDamage += psvulnerDamage;
             }
@@ -1824,10 +2114,10 @@
             if (hero.name === 'アリア＆ティナ' && data.psVulnerable) {
               const psInfo = data.psVulnerable(exLv);
               if (psInfo) {
-                const vulnerBoost = 100 + globalVulnerableBoost;
-                // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × 付与数 × 発動率 × 脆弱強化
+                const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
+                // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × 付与数 × 発動率 × 脆弱強化 / 攻撃強化補正
                 const ariaPSVulnerDamage = psInfo.rate * (totalDirectDamage / (totalDirectBullets || 1)) *
-                                           (psInfo.value / 100) * psInfo.count * (vulnerBoost / 100);
+                                           (psInfo.value / 100) * psInfo.count * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
                 totalASDamage += ariaPSVulnerDamage;
                 totalVulnerableDamage += ariaPSVulnerDamage;
                 // 脆弱数期待値を集計
@@ -1879,10 +2169,57 @@
                   }
                 }
 
-                // アカネのAS拡散ダメの全突分
+                // アカネのAS追加直接ダメージの全突分（旧：拡散ダメ）
                 if (hero.name === 'アカネ' && data.asScatterDamage) {
                   const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
-                  rushBonus += actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
+                  
+                  // レイチェルの拡散弾数ボーナス
+                  let scatterBullets = scatterInfo.bullets;
+                  if (hasRachel) {
+                    const rachelData = heroData['レイチェル'];
+                    if (rachelData && rachelData.scatterBulletBonus) {
+                      scatterBullets += rachelData.scatterBulletBonus;
+                    }
+                  }
+                  
+                  rushBonus += actualRate * scatterInfo.damage * scatterBullets * (rushValue / 100);
+                }
+
+                // コレット・ルーシィの拡散ダメージの全突分
+                if ((hero.name === 'コレット' || hero.name === 'ルーシィ') && data.scatterDamage) {
+                  const asBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+                  // asDamageが関数なら呼び出し（引数が複数ある可能性を考慮）
+                  let damage;
+                  if (typeof data.asDamage === 'function') {
+                    damage = data.asDamage(exLv, hasAbnormalCombo);
+                  } else {
+                    damage = data.asDamage;
+                  }
+                  
+                  // 拡散基礎ダメージ（ASダメージの一定割合）
+                  const baseScatterRatio = data.scatterDamage.baseRatio;
+                  const scatterDamageBase = damage * baseScatterRatio;
+                  
+                  // 拡散ダメ加算補正
+                  const scatterBoost = (100 + totalScatterDamageBoost) / 100;
+                  const scatterDamagePerBullet = scatterDamageBase * scatterBoost;
+                  
+                  // 拡散弾数（基礎弾数 + 拡散弾数ボーナス）
+                  let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus;
+                  
+                  // コレット専5以上：種類数が2.0超のラウンドで追加弾数
+                  if (hero.name === 'コレット' && data.scatterDamage.conditionalBullets && exLv >= 5) {
+                    // 各ラウンドで追加弾数を計算して火力重みで平均
+                    const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
+                      data.scatterDamage.conditionalBullets(exLv, types));
+                    const avgConditionalBullets = conditionalBulletsPerRound.reduce((sum, val, idx) => 
+                      sum + val * powerRoundWeights[idx], 0);
+                    scatterBullets += avgConditionalBullets;
+                  }
+                  
+                  // 拡散ダメージ = AS発動率 × 拡散ダメージ/弾 × AS弾数 × 拡散弾数
+                  const totalScatterDamage = actualRate * scatterDamagePerBullet * asBullets * scatterBullets;
+                  rushBonus += totalScatterDamage * (rushValue / 100);
                 }
 
                 // 磁場（磁気付与）の全突分
@@ -1918,7 +2255,7 @@
                       const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
                       const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
                                           (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
-                                          (vulnerBoost / 100);
+                                          (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
                       rushBonus += vulnerDamage * (rushValue / 100);
                     }
                   }
@@ -1947,8 +2284,8 @@
             sofiDamageBoost = 20;
           }
           
-          // 戦場洞察（タイタンON時）+ ソフィボーナス → ダメ増・ダメ減補正係数
-          const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost;
+          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス → ダメ増・ダメ減補正係数
+          const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost + shieldTypesDamageIncrease;
           const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost;
           
           if (totalDamageIncreaseBonus > 0) {
@@ -2449,6 +2786,22 @@
                 )}
                 <div className={`card-content ${!expandedTabs.heroes ? 'hidden' : ''}`}>
                 
+                {/* 一括専用レベル設定 */}
+                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
+                  <label className="form-label" style={{ marginBottom: '0.5rem', color: '#60a5fa' }}>デフォルト専用レベル（英雄変更時に適用）</label>
+                  <select
+                    value={defaultExclusiveLv}
+                    onChange={(e) => setDefaultExclusiveLv(parseInt(e.target.value))}
+                    className="form-select"
+                    style={{ maxWidth: '200px' }}
+                  >
+                    <option value={0}>専用なし</option>
+                    <option value={3}>専用3</option>
+                    <option value={5}>専用5</option>
+                    <option value={7}>専用7</option>
+                  </select>
+                </div>
+                
                 {/* プリセット選択（コンパクト） */}
                 <div style={{ marginBottom: '1rem' }}>
                   <label className="form-label" style={{ marginBottom: '0.5rem' }}>プリセット選択</label>
@@ -2490,9 +2843,34 @@
                             onChange={(e) => updateHero(i, 'name', e.target.value)}
                             className="form-select"
                           >
-                            {Object.keys(heroData).map(name => (
-                              <option key={name} value={name}>{name}</option>
-                            ))}
+                            <optgroup label="━━━ 陸軍 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([_, data]) => data.type === '陸軍')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="━━━ 海軍 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([_, data]) => data.type === '海軍')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="━━━ 空軍 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([_, data]) => data.type === '空軍')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="━━━ その他 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([_, data]) => data.type === '汎用' || !data.type)
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
                           </select>
                         </div>
                         <div className="form-group">
