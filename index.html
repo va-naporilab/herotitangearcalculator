@@ -892,9 +892,59 @@
         // PS磁気（専5以上で各ラウンドに1度）
         psMagnetic: (ex) => ex >= 5 ? { value: 60, count: 5, rate: 0.11 } : null
       },
+      'デューク': {
+        type: '汎用',
+        ironWallValue: (ex) => {
+          const base = 38 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 10 : base;
+        },
+        ironWallRounds: 1,
+        // 鉄壁補正係数の下方修正：(1-40%の場合の鉄壁値×専用) / (1-当英雄の鉄壁値×専用)
+        ironWallCorrectionAdjustment: (ex) => {
+          const standard40Value = 40 * exclusiveMultipliers[ex];
+          const dukeValue = 38 * exclusiveMultipliers[ex] + (ex >= 7 ? 10 : 0);
+          return (1 - standard40Value / 100) / (1 - dukeValue / 100);
+        },
+        asRate: 36,
+        asDamage: (ex) => {
+          const base = 130 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 80 : base;
+        },
+        asBullets: 3,
+        // 衰弱効果：衰弱値15%、衰弱率29%
+        asDebuff: (ex) => ({ value: 15, rate: 0.29 }),
+        // 鼓動効果：専5以上で20%×3ラウンド
+        heartbeat: (ex) => ex >= 5 ? { value: 20, rounds: 3 } : null
+      },
+      'ミーチェ': {
+        type: '陸軍',
+        ironWallValue: (ex) => {
+          const base = 40 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 10 : base;
+        },
+        ironWallRounds: 1,
+        asRate: 32,
+        asDamage: (ex) => 130 * exclusiveMultipliers[ex],
+        asBullets: (ex) => ex >= 5 ? 4 : 3,
+        // 開戦シールド：専7以上で15%
+        openingShield: (ex) => ex >= 7 ? 15 : 0,
+        // AS付随ダメ減（ラウンドごとの累積計算）
+        asDamageReduction: (ex, asRate, hasRush) => {
+          // R1での発動数期待値（全突がある場合は2倍）
+          const r1Expected = asRate * (hasRush ? 2 : 1);
+          const normalExpected = asRate;
+          
+          // 各ラウンドでの累積発動数とダメ減加算
+          const r1Reduction = r1Expected * 0.05 - 0.5 * (r1Expected * 0.05);
+          const r2Reduction = (r1Expected + normalExpected) * 0.05 - 0.5 * (normalExpected * 0.05);
+          const r3Reduction = (r1Expected + normalExpected * 2) * 0.05 - 0.5 * (normalExpected * 0.05);
+          const r4Reduction = (r1Expected + normalExpected * 3) * 0.05 - 0.5 * (normalExpected * 0.05);
+          
+          return [r1Reduction, r2Reduction, r3Reduction, r4Reduction];
+        }
+      },
       'カトレア': { name: '未実装', type: '陸軍' },
       'シャーリー': { name: '未実装', type: '陸軍' },
-      'ミーチェ': { name: '未実装', type: '陸軍' },
       'ソフィ': {
         type: '海軍',
         shieldBuff: (ex) => 66 * exclusiveMultipliers[ex],
@@ -1056,12 +1106,172 @@
         // シールド種類数への貢献：固定0.5
         shieldTypesContribution: 0.5
       },
-      'リヴィア': { name: '未実装', type: '空軍' },
-      'ルチル': { name: '未実装', type: '空軍' },
-      'ノルシュ': { name: '未実装', type: '空軍' },
+      'リヴィア': {
+        type: '空軍',
+        attackBuff: (ex) => {
+          const base = 135 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 30 : base;
+        },
+        // 開幕スキル：ラウンドごと（11.1%発動率）30%（専5以上で120%）の燃焼を1発（専5以上で3発）
+        openingBurning: (ex) => {
+          const rate = 0.111;
+          if (ex >= 5) return { value: 120, count: 3, rate };
+          return { value: 30, count: 1, rate };
+        },
+        // PS燃焼：ミスティ/アスカと同時編成では発動しない
+        psBurning: (ex, speedCondition, hasMisty, hasAsuka) => {
+          if (hasMisty || hasAsuka) return null;
+          if (speedCondition !== '同攻速') return null;
+          const rate = ex >= 5 ? 0.90 : 0.85;
+          const value = ex >= 5 ? 120 : 30;
+          return { rate, value, count: 1 };
+        },
+        // PSダメ増バフ：ミスティ/アスカと同時編成では発動しない
+        psDamageIncreasePerRound: (ex, speedCondition, hasMisty, hasAsuka) => {
+          if (hasMisty || hasAsuka) return null;
+          
+          let baseValues;
+          if (ex >= 7) baseValues = [100, 275, 300, 300];
+          else if (ex >= 5) baseValues = [34, 104, 174, 250];
+          else baseValues = [24, 94, 164, 240];
+          
+          if (speedCondition === '攻速負け') return [0, 0, 0, 0];
+          if (speedCondition === '攻速勝ち') {
+            // R1～R3は0.8倍、R4はそのまま
+            return [baseValues[0] * 0.8, baseValues[1] * 0.8, baseValues[2] * 0.8, baseValues[3]];
+          }
+          // 同攻速
+          return baseValues;
+        }
+      },
+      'ルチル': {
+        type: '空軍',
+        shieldBuff: (ex) => 78 * exclusiveMultipliers[ex],
+        asRate: 35,
+        asDamage: (ex) => {
+          const base = 50 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 56 : base;
+        },
+        asBullets: 9,
+        // AS付随燃焼：30%燃焼×3発
+        asBurning: { value: 30, count: 3 },
+        // PS燃焼強化：グローバル効果、ラウンドごと
+        psBurningBoostPerRound: (ex) => {
+          const base = [0, 10, 15, 15];
+          if (ex >= 5) return base.map(v => v * 4);
+          return base;
+        },
+        // 専7以上：グローバル燃焼強化+40%
+        burningBoost: (ex) => ex >= 7 ? 40 : 0
+      },
+      'ノルシュ': {
+        type: '空軍',
+        ironWallValue: (ex) => {
+          const base = 40 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 10 : base;
+        },
+        ironWallRounds: 1,
+        asRate: 34,
+        asDamage: (ex) => {
+          const base = 107 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 100 : base;
+        },
+        asBullets: (ex) => ex >= 7 ? 4 : 3,
+        // AS付随燃焼：15%燃焼を2.6体に
+        asBurning: { value: 15, count: 2.6 },
+        // 鼓動効果：35%×2ラウンド（専5以上）
+        heartbeat: (ex) => ex >= 5 ? { value: 35, rounds: 2 } : null
+      },
+      'ストームシャドー': {
+        type: '空軍',
+        ironWallValue: (ex) => {
+          const base = 40 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 10 : base;
+        },
+        ironWallRounds: 1,
+        asRate: 36,
+        asDamage: (ex) => 155 * exclusiveMultipliers[ex],
+        asBullets: (ex) => ex >= 7 ? 4 : 2,
+        // 鼓動効果：25%×3ラウンド
+        heartbeat: { value: 25, rounds: 3 },
+        // 開幕燃焼：専5以上で50%×3発
+        openingBurning: (ex) => ex >= 5 ? { value: 50, count: 3, rate: 0.111 } : null
+      },
+      'フローリア': {
+        type: '空軍',
+        ironWallValue: (ex) => {
+          const base = 40 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 10 : base;
+        },
+        ironWallRounds: 1,
+        asRate: 35,
+        asDamage: (ex) => {
+          const base = 160 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 80 : base;
+        },
+        asBullets: 3,
+        // 鼓動効果：30%×3ラウンド
+        heartbeat: { value: 30, rounds: 3 },
+        // PS連撃強化：専5以上でグローバル効果
+        comboBoost: (ex) => ex >= 5 ? 30 : 0
+      },
+      'ユズハ': {
+        type: '空軍',
+        attackBuff: (ex) => {
+          const base = 125 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 22 : base;
+        },
+        // 開幕スキル（専5以上）：ラウンドごと（11.1%発動率）50%燃焼×3
+        openingBurning: (ex) => ex >= 5 ? { value: 50, count: 3, rate: 0.111 } : null,
+        // 挑発効果（R1とR2のみ有効）
+        taunt: (ex, speedCondition, hasMisty, hasAsuka) => {
+          if (speedCondition !== '同攻速') return null;
+          let tauntCount = 6;
+          if (ex >= 7) tauntCount = 18;
+          else if (ex >= 5) tauntCount = 9;
+          
+          // 燃焼付与数の倍率
+          let burningMultiplier = 1.0;
+          if (hasMisty && hasAsuka) burningMultiplier = 1.21 * 1.12;
+          else if (hasMisty) burningMultiplier = 1.21;
+          else if (hasAsuka) burningMultiplier = 1.12;
+          
+          return {
+            count: tauntCount,
+            burningValue: 48,
+            burningCount: 1 * burningMultiplier,
+            rate: 0.111 // ラウンドごと（9ターンに1度）
+          };
+        },
+        // ダメ増バフ：[R1, R2-R4]
+        damageIncreasePerRound: (ex) => {
+          if (ex >= 7) return [100, 200];
+          if (ex >= 5) return [50, 100];
+          return [36.5, 73];
+        }
+      },
+      'アスカ': {
+        type: '汎用',
+        attackBuff: (ex) => 40 * exclusiveMultipliers[ex] * (2/3) * 1.1,
+        shieldBuff: (ex) => {
+          const base = 55 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 40 : base;
+        },
+        asRate: 42,
+        asDamage: 50,
+        asBullets: 6,
+        // 専5以上：ラウンドごとに50%燃焼×2発
+        psBurning: (ex) => ex >= 5 ? { value: 50, count: 2, rate: 1.0 } : null,
+        // 磁気と燃焼の効果強化
+        magneticBoost: (ex) => ex >= 7 ? 15 : ex >= 5 ? 10 : 0,
+        burningBoost: (ex) => ex >= 7 ? 15 : ex >= 5 ? 10 : 0
+      },
+      'ミスティ': {
+        type: '空軍',
+        shieldBuff: (ex) => 75 * exclusiveMultipliers[ex]
+      },
       'ギャビー': { name: '未実装', type: '空軍' },
-      'ビスコット': { name: '未実装', type: '空軍' },
-      'フローリア': { name: '未実装', type: '空軍' }
+      'ビスコット': { name: '未実装', type: '空軍' }
     };
 
     const presets = {
@@ -1154,7 +1364,9 @@
         powerDiff: 1.0,
         enemyRushRatio: 0.15,
         enemyPowerDurabilityRatio: 0.3,
-        myPowerDurabilityRatio: 0.3
+        myPowerDurabilityRatio: 0.3,
+        speedCondition: '同攻速', // 攻速条件
+        directDamageRatio: 0.5 // (直接ダメ総火力/総火力)/直接弾数の初期値（後で専5磁気編成の値で更新）
       });
 
       const [compatibility, setCompatibility] = useState('同兵種');
@@ -1235,9 +1447,9 @@
       };
 
       const [heroes, setHeroes] = useState([
-        { name: 'ペトラ', exclusiveLv: 0 },
-        { name: 'ミヤ', exclusiveLv: 0 },
-        { name: 'ルネ', exclusiveLv: 0 }
+        { name: 'ペトラ', exclusiveLv: 5 },
+        { name: 'ミヤ', exclusiveLv: 5 },
+        { name: 'ルネ', exclusiveLv: 5 }
       ]);
 
       // 一括専用レベル設定（デフォルト: 専用5）
@@ -1250,7 +1462,7 @@
       const numericBuffKeys = new Set([
         'troops', 'soldierLv', 'life', 'attack', 'damageIncrease', 'damageReduction',
         'defense', 'typeAdvantage', 'baseShield', 'silenceCount',
-        'powerDiff', 'enemyRushRatio', 'enemyPowerDurabilityRatio', 'myPowerDurabilityRatio'
+        'powerDiff', 'enemyRushRatio', 'enemyPowerDurabilityRatio', 'myPowerDurabilityRatio', 'directDamageRatio'
       ]);
       
       const updateBuff = (key, value) => {
@@ -1415,6 +1627,14 @@
             const data = heroData[hero.name];
             if (data && data.burningBoost) {
               globalBurningBoost += data.burningBoost(hero.exclusiveLv);
+            }
+            
+            // ルチルのPS燃焼強化（ラウンドごと、火力重み係数で平均）
+            if (hero.name === 'ルチル' && data.psBurningBoostPerRound) {
+              const boostPerRound = data.psBurningBoostPerRound(hero.exclusiveLv);
+              const avgBoost = boostPerRound.reduce((sum, val, i) => 
+                sum + val * powerRoundWeights[i], 0);
+              globalBurningBoost += avgBoost;
             }
           });
 
@@ -1602,6 +1822,32 @@
             }
           });
 
+          // ミーチェのAS付随ダメ減（耐久重み係数で平均化）
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            const exLv = hero.exclusiveLv;
+            
+            if (hero.name === 'ミーチェ' && data.asDamageReduction) {
+              // 全軍突撃の確認
+              let hasRush = false;
+              if (useTitan) {
+                titanEquip[i].forEach((equip, slotIdx) => {
+                  if (equip.effect === '全軍突撃' && slotNames[slotIdx] === 'rifle') hasRush = true;
+                });
+              }
+              
+              const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
+              const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
+              const reductionPerRound = data.asDamageReduction(exLv, actualRate, hasRush);
+              
+              // 耐久重み係数で平均化
+              const avgReduction = reductionPerRound.reduce((sum, val, i) => 
+                sum + val * 100 * durabilityRoundWeights[i], 0);
+              totalDamageReductionAddition += avgReduction;
+            }
+          });
+
 
           // ローカル磁気効果強化（装備した英雄のみに適用）
           const localMagneticBoosts = heroes.map((hero, i) => {
@@ -1720,6 +1966,14 @@
               totalShieldBuff += shieldBoost * (100 + steelBoosts[i]) / 100;
             }
 
+            // ミーチェの開戦シールド（専7以上）
+            if (hero.name === 'ミーチェ' && data.openingShield) {
+              const openingShieldValue = data.openingShield(exLv);
+              if (openingShieldValue > 0) {
+                totalShieldBuff += openingShieldValue * (100 + steelBoosts[i]) / 100;
+              }
+            }
+
             if (data.ironWallValue) {
               hasIronWall = true;
               const ironValue = data.ironWallValue(exLv);
@@ -1766,6 +2020,13 @@
               totalDirectDamage += asDamageAmount;
               totalDirectBullets += actualRate * bullets;
               totalASBullets += actualRate * bullets;
+
+              // AS付随燃焼（ルチル・ノルシュ）
+              if (data.asBurning) {
+                const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
+                const asBurningDamage = actualRate * data.asBurning.value * data.asBurning.count * burningBoost / 100;
+                totalASDamage += asBurningDamage;
+              }
 
               if (hero.name === 'ペトラ' && data.asExtraEffect) {
                 const extra = data.asExtraEffect(exLv, hasCombo);
@@ -1826,12 +2087,9 @@
                 // 拡散ダメージ = AS発動率 × 拡散ダメージ/弾 × AS弾数 × 拡散弾数
                 const totalScatterDamage = actualRate * scatterDamagePerBullet * asBullets * scatterBullets;
                 totalASDamage += totalScatterDamage;
-                
-                // 拡散ダメージを直接ダメージとして追跡
+                // 拡散ダメージも直接ダメージに含める
                 totalDirectDamage += totalScatterDamage;
                 totalDirectBullets += actualRate * asBullets * scatterBullets;
-                // 追撃火力比率の計算用
-                totalASBullets += actualRate * asBullets * scatterBullets;
               }
             }
             
@@ -1844,6 +2102,39 @@
                 totalASDamage += psMagneticDamage;
                 // 磁気数を集計
                 totalMagneticBulletsExpected += psInfo.rate * psInfo.count;
+              }
+            }
+
+            // 開幕燃焼（リヴィア・ユズハ・ストームシャドー）
+            if (data.openingBurning) {
+              const openInfo = data.openingBurning(exLv);
+              if (openInfo) {
+                const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
+                const openingBurningDamage = openInfo.rate * openInfo.value * openInfo.count * burningBoost / 100;
+                totalPSDamage += openingBurningDamage;
+              }
+            }
+
+            // リヴィア・アスカのPS燃焼
+            if (data.psBurning) {
+              const psInfo = data.psBurning(exLv, buffs.speedCondition, hasMisty, hasAsuka);
+              if (psInfo) {
+                const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
+                const psBurningDamage = psInfo.rate * psInfo.value * psInfo.count * burningBoost / 100;
+                totalPSDamage += psBurningDamage;
+              }
+            }
+
+            // ユズハの挑発燃焼（R1とR2のみ）
+            if (hero.name === 'ユズハ' && data.taunt) {
+              const tauntInfo = data.taunt(exLv, buffs.speedCondition, hasMisty, hasAsuka);
+              if (tauntInfo) {
+                // R1とR2の重み係数で補正
+                const tauntWeight = powerRoundWeights[0] + powerRoundWeights[1];
+                const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
+                const tauntBurningDamage = tauntInfo.rate * tauntInfo.burningValue * tauntInfo.burningCount * 
+                                           burningBoost / 100 * tauntWeight;
+                totalPSDamage += tauntBurningDamage;
               }
             }
 
@@ -1931,9 +2222,11 @@
               debuffEffects.push({ value: enhancedValue, rate: debuffRate });
             }
 
-            // ミーク・アイリスのAS衰弱付与
-            if ((hero.name === 'ミーク' || hero.name === 'アイリス') && data.asDebuff) {
-              const debuffInfo = data.asDebuff(exLv, hasRush, buffs.silenceCount);
+            // ミーク・アイリス・デュークのAS衰弱付与
+            if ((hero.name === 'ミーク' || hero.name === 'アイリス' || hero.name === 'デューク') && data.asDebuff) {
+              const debuffInfo = typeof data.asDebuff === 'function' 
+                ? data.asDebuff(exLv, hasRush, buffs.silenceCount)
+                : data.asDebuff;
               const enhancedValue = debuffInfo.value * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
               debuffEffects.push({ value: enhancedValue, rate: debuffInfo.rate });
             }
@@ -2154,7 +2447,7 @@
                 // AS直接ダメージの全突分
                 if (data.asDamage && data.asBullets) {
                   const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
-                  const damage = data.asDamage(exLv);
+                  const damage = typeof data.asDamage === 'function' ? data.asDamage(exLv) : data.asDamage;
                   rushBonus += actualRate * damage * bullets * (rushValue / 100);
                 }
 
@@ -2284,9 +2577,85 @@
             sofiDamageBoost = 20;
           }
           
-          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス → ダメ増・ダメ減補正係数
-          const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost + shieldTypesDamageIncrease;
-          const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost;
+          // ミスティ・アスカの存在確認（リヴィアの条件用）
+          const hasMisty = heroes.some(h => h.name === 'ミスティ');
+          const hasAsuka = heroes.some(h => h.name === 'アスカ');
+          
+          // 鼓動効果の計算（通常攻撃のダメ増加算）
+          let heartbeatDamageIncrease = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (data.heartbeat) {
+              const hb = typeof data.heartbeat === 'function' ? data.heartbeat(hero.exclusiveLv) : data.heartbeat;
+              if (hb) {
+                // ラウンドごとの累積値を計算: [value, value*2, value*2, value*2]（rounds分だけ累積）
+                const perRound = [0, 0, 0, 0];
+                for (let r = 0; r < 4; r++) {
+                  if (r < hb.rounds) {
+                    perRound[r] = hb.value * (r + 1);
+                  } else {
+                    perRound[r] = hb.value * hb.rounds;
+                  }
+                }
+                // 火力重み係数で平均
+                const avgHeartbeat = perRound.reduce((sum, val, i) => 
+                  sum + val * powerRoundWeights[i], 0);
+                heartbeatDamageIncrease += avgHeartbeat;
+              }
+            }
+          });
+          
+          // 通常攻撃に鼓動効果を適用
+          // 通常攻撃を (ダメ増+100+英雄ダメ増+鼓動) / (ダメ増+100+英雄ダメ増) の倍率で強化
+          if (heartbeatDamageIncrease > 0) {
+            // 英雄ダメ増効果 = ソフィ + シールド種類数 + リヴィア + ユズハ (後で計算)
+            // ここでは一旦計算せず、後でtotalDamageIncreaseBonus確定後に適用
+          }
+          
+          // リヴィアのPSダメ増バフ（ラウンドごと、火力重み係数で平均）
+          let riviaDamageIncrease = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (hero.name === 'リヴィア' && data.psDamageIncreasePerRound) {
+              const damageIncreasePerRound = data.psDamageIncreasePerRound(hero.exclusiveLv, buffs.speedCondition, hasMisty, hasAsuka);
+              if (damageIncreasePerRound) {
+                riviaDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 
+                  sum + val * powerRoundWeights[i], 0);
+              }
+            }
+          });
+          
+          // ユズハのダメ増バフ（R1とR2～R4、火力重み係数で平均）
+          let yuzuhaDamageIncrease = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (hero.name === 'ユズハ' && data.damageIncreasePerRound) {
+              const [r1Boost, r234Boost] = data.damageIncreasePerRound(hero.exclusiveLv);
+              yuzuhaDamageIncrease = r1Boost * powerRoundWeights[0] + 
+                                     r234Boost * (powerRoundWeights[1] + powerRoundWeights[2] + powerRoundWeights[3]);
+            }
+          });
+          
+          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス + リヴィア + ユズハ → ダメ増・ダメ減補正係数
+          const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost + shieldTypesDamageIncrease + 
+                                           riviaDamageIncrease + yuzuhaDamageIncrease;
+          const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost + totalDamageReductionAddition;
+          
+          // 鼓動効果を通常攻撃に適用
+          if (heartbeatDamageIncrease > 0) {
+            const heartbeatCoeff = (buffs.damageIncrease + 100 + totalDamageIncreaseBonus + heartbeatDamageIncrease) / 
+                                   (buffs.damageIncrease + 100 + totalDamageIncreaseBonus);
+            totalPSDamage *= heartbeatCoeff;
+            // 通常攻撃のみに鼓動効果を適用してtotalDirectDamageを更新（燃焼などは含めない）
+            const enhancedBasicAttack = basicAttackDamage * heartbeatCoeff;
+            totalDirectDamage = totalDirectDamage - basicAttackDamage + enhancedBasicAttack;
+          }
           
           if (totalDamageIncreaseBonus > 0) {
             damageIncreaseCoeff = (totalDamageIncreaseBonus + (buffs.damageIncrease + 100)) / (buffs.damageIncrease + 100);
@@ -2310,7 +2679,7 @@
               
               const exLv = hero.exclusiveLv;
               const ironValue = data.ironWallValue(exLv);
-              const ironRounds = data.ironWallRounds ? data.ironWallRounds(exLv) : 1;
+              const ironRounds = data.ironWallRounds ? (typeof data.ironWallRounds === 'function' ? data.ironWallRounds(exLv) : data.ironWallRounds) : 1;
               
               // 基礎鉄壁耐久係数（タイタンOFFでも適用）
               let baseCorrection = 1.0;
@@ -2351,6 +2720,12 @@
               
               let finalCorrection = baseCorrection + destructibleBonus;
               
+              // デュークの鉄壁補正係数の下方修正
+              if (hero.name === 'デューク' && data.ironWallCorrectionAdjustment) {
+                const adjustment = data.ironWallCorrectionAdjustment(exLv);
+                finalCorrection *= adjustment;
+              }
+              
               // 上限チェック
               if (exLv >= 7) {
                 finalCorrection = Math.min(finalCorrection, 3.33);
@@ -2381,14 +2756,19 @@
           //   vulnerable: 脆弱値（直接ダメージ強化）
           // }
 
-          // （追撃火力／総火力）／弾数
+          // （追撃火力／総火力）／追撃弾数
           const rushRatio = totalASBullets > 0 ? 
             (totalASDamage / (totalASDamage + passiveDamage)) / totalASBullets : 
             0;
           
-          // 直接ダメージ総計／弾数 = (全直接ダメージ + 脆弱ダメージ) / 直接ダメージ弾数期待値
+          // 直接ダメージ総計／直接弾数 = (全直接ダメージ + 脆弱ダメージ) / 直接ダメージ弾数期待値
           const directDamagePerBullet = totalDirectBullets > 0 ?
             (totalDirectDamage + totalVulnerableDamage) / totalDirectBullets :
+            0;
+          
+          // （直接ダメ総火力／総火力）／直接弾数
+          const directDamageRatio = totalDirectBullets > 0 ?
+            ((totalDirectDamage + totalVulnerableDamage) / (totalASDamage + passiveDamage)) / totalDirectBullets :
             0;
 
           return {
@@ -2404,6 +2784,7 @@
             totalDebuffDurabilityCorrection,
             rushRatio,
             directDamagePerBullet,
+            directDamageRatio,
             heroPower,
             heroDurability,
             heroStrength
@@ -2631,6 +3012,21 @@
                   </div>
 
                   <div className="form-group">
+                    <label className="form-label">攻速条件</label>
+                    <div className="compatibility-buttons">
+                      {['攻速勝ち', '同攻速', '攻速負け'].map(speed => (
+                        <button
+                          key={speed}
+                          onClick={() => updateBuff('speedCondition', speed)}
+                          className={`btn ${buffs.speedCondition === speed ? 'btn-primary active' : 'btn-secondary'}`}
+                        >
+                          {speed}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
                     <label className="form-label">敵から受ける沈黙の数</label>
                     <input
                       type="number"
@@ -2748,12 +3144,27 @@
 
                   {/* 敵の追撃火力比率 */}
                   <div className="form-group" style={{ marginTop: '1rem' }}>
-                    <label className="form-label">敵の（追撃火力／総火力）／弾数（重甲の計算用）</label>
+                    <label className="form-label" style={{ fontSize: '0.85rem' }}>
+                      敵の（追撃火力／総火力）／追撃弾数<br/>
+                      （重甲の計算用）
+                    </label>
                     <input
                       type="number"
                       step="0.01"
                       value={buffs.enemyRushRatio}
                       onChange={(e) => updateBuff('enemyRushRatio', e.target.value)}
+                      className="form-input"
+                    />
+                  </div>
+
+                  {/* 直接ダメ総火力比率 */}
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label className="form-label">敵の（直接ダメ総火力／総火力）／直接弾数</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      value={buffs.directDamageRatio}
+                      onChange={(e) => updateBuff('directDamageRatio', e.target.value)}
                       className="form-input"
                     />
                   </div>
@@ -2843,30 +3254,33 @@
                             onChange={(e) => updateHero(i, 'name', e.target.value)}
                             className="form-select"
                           >
+                            {/* 外すを一番上に */}
+                            <option value="外す">外す</option>
+                            
                             <optgroup label="━━━ 陸軍 ━━━">
                               {Object.entries(heroData)
-                                .filter(([_, data]) => data.type === '陸軍')
+                                .filter(([name, data]) => data.type === '陸軍' && name !== '外す')
                                 .map(([name]) => (
                                   <option key={name} value={name}>{name}</option>
                                 ))}
                             </optgroup>
                             <optgroup label="━━━ 海軍 ━━━">
                               {Object.entries(heroData)
-                                .filter(([_, data]) => data.type === '海軍')
+                                .filter(([name, data]) => data.type === '海軍' && name !== '外す')
                                 .map(([name]) => (
                                   <option key={name} value={name}>{name}</option>
                                 ))}
                             </optgroup>
                             <optgroup label="━━━ 空軍 ━━━">
                               {Object.entries(heroData)
-                                .filter(([_, data]) => data.type === '空軍')
+                                .filter(([name, data]) => data.type === '空軍' && name !== '外す')
                                 .map(([name]) => (
                                   <option key={name} value={name}>{name}</option>
                                 ))}
                             </optgroup>
-                            <optgroup label="━━━ その他 ━━━">
+                            <optgroup label="━━━ 汎用 ━━━">
                               {Object.entries(heroData)
-                                .filter(([_, data]) => data.type === '汎用' || !data.type)
+                                .filter(([name, data]) => (data.type === '汎用' || !data.type) && name !== '外す')
                                 .map(([name]) => (
                                   <option key={name} value={name}>{name}</option>
                                 ))}
@@ -3152,16 +3566,29 @@
 
                   {/* 追撃火力比率 */}
                   <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
-                    <div className="result-label">（追撃火力／総火力）／弾数</div>
+                    <div className="result-label" style={{ fontSize: '0.8rem' }}>
+                      （追撃火力／総火力）／<br/>追撃弾数
+                    </div>
                     <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
                   </div>
                   
-                  {/* 直接ダメージ総計／弾数 */}
+                  {/* 直接ダメージ総計／直接弾数 */}
                   <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
-                    <div className="result-label">直接ダメージ総計／弾数</div>
+                    <div className="result-label" style={{ fontSize: '0.8rem' }}>
+                      直接ダメージ総計／<br/>直接弾数
+                    </div>
                     <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamagePerBullet)}%</div>
                   </div>
-                </div>
+                  
+                  {/* 直接ダメ総火力比率 */}
+                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
+                    <div className="result-label" style={{ fontSize: '0.8rem' }}>
+                      （直接ダメ総火力／総火力）／<br/>直接弾数
+                    </div>
+                    <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamageRatio)}</div>
+                  </div>
+                  
+                  {/* 攻速タイプ別耐久補正 */}</div>
                 </div>
               </div>
 
