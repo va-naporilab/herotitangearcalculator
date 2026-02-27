@@ -1551,6 +1551,10 @@
           // 脆弱ダメージ追跡（脆弱属性）
           let totalVulnerableDamage = 0;
           
+          // AS直接ダメージ追跡（追撃火力比率計算用、磁気・燃焼を除外）
+          let totalASDirectDamage = 0;
+          let totalASDirectBullets = 0;
+          
           // AS弾数追跡（追撃火力比率計算用）
           let totalASBullets = 0;
           
@@ -2019,6 +2023,11 @@
               // 直接ダメージとして追跡
               totalDirectDamage += asDamageAmount;
               totalDirectBullets += actualRate * bullets;
+              
+              // AS直接ダメージとして追跡（追撃火力比率計算用）
+              totalASDirectDamage += asDamageAmount;
+              totalASDirectBullets += actualRate * bullets;
+              
               totalASBullets += actualRate * bullets;
 
               // AS付随燃焼（ルチル・ノルシュ）
@@ -2053,6 +2062,10 @@
                 totalASDamage += scatterDamage;
                 totalDirectDamage += scatterDamage;
                 totalDirectBullets += actualRate * scatterInfo.bullets;
+                
+                // AS直接ダメージとして追跡
+                totalASDirectDamage += scatterDamage;
+                totalASDirectBullets += actualRate * scatterInfo.bullets;
               }
               
               // コレット・ルーシィの拡散ダメージ
@@ -2090,6 +2103,10 @@
                 // 拡散ダメージも直接ダメージに含める
                 totalDirectDamage += totalScatterDamage;
                 totalDirectBullets += actualRate * asBullets * scatterBullets;
+                
+                // AS直接ダメージとして追跡
+                totalASDirectDamage += totalScatterDamage;
+                totalASDirectBullets += actualRate * asBullets * scatterBullets;
               }
             }
             
@@ -2369,6 +2386,8 @@
                     totalASDamage += vulnerDamage;
                     // 脆弱ダメージは脆弱属性として別途追跡（弾数はカウントしない）
                     totalVulnerableDamage += vulnerDamage;
+                    // AS直接ダメージとして追跡（追撃火力比率計算用）
+                    totalASDirectDamage += vulnerDamage;
                     // 脆弱数期待値を集計
                     totalVulnerableBulletsExpected += asRate * vulnerCount * lossCoef * 0.95;
                   }
@@ -2392,6 +2411,8 @@
               const nolaPSVulnerDamage = baseDamage * (vulnerValue / 100) * (vulnerBoost / 100) * triggerRate / ((100 + totalAttackBuff) / 100);
               totalASDamage += nolaPSVulnerDamage;
               totalVulnerableDamage += nolaPSVulnerDamage;
+              // AS直接ダメージとして追跡
+              totalASDirectDamage += nolaPSVulnerDamage;
             }
 
             // ソフィ・ヒヨリのPS脆弱ダメージ（毎ターン、期待値計算済み）
@@ -2401,6 +2422,8 @@
               const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
               totalASDamage += psvulnerDamage;
               totalVulnerableDamage += psvulnerDamage;
+              // AS直接ダメージとして追跡
+              totalASDirectDamage += psvulnerDamage;
             }
             
             // アリア＆ティナのPS脆弱（専5以上で1ラウンドに1度）
@@ -2413,6 +2436,8 @@
                                            (psInfo.value / 100) * psInfo.count * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
                 totalASDamage += ariaPSVulnerDamage;
                 totalVulnerableDamage += ariaPSVulnerDamage;
+                // AS直接ダメージとして追跡
+                totalASDirectDamage += ariaPSVulnerDamage;
                 // 脆弱数期待値を集計
                 totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
               }
@@ -2757,8 +2782,9 @@
           // }
 
           // （追撃火力／総火力）／追撃弾数
-          const rushRatio = totalASBullets > 0 ? 
-            (totalASDamage / (totalASDamage + passiveDamage)) / totalASBullets : 
+          // 追撃火力：ASとAS付随のダメージのうち、直接ダメージのみ（脆弱含む、磁気・燃焼除外）
+          const rushRatio = totalASDirectBullets > 0 ? 
+            ((totalASDirectDamage + totalVulnerableDamage) / (totalASDamage + passiveDamage)) / totalASDirectBullets : 
             0;
           
           // 直接ダメージ総計／直接弾数 = (全直接ダメージ + 脆弱ダメージ) / 直接ダメージ弾数期待値
@@ -2766,7 +2792,7 @@
             (totalDirectDamage + totalVulnerableDamage) / totalDirectBullets :
             0;
           
-          // （直接ダメ総火力／総火力）／直接弾数
+          // （直接ダメ総火力／総火力）／直接弾数 = (直接ダメージ総計 / 総火力) / 直接弾数
           const directDamageRatio = totalDirectBullets > 0 ?
             ((totalDirectDamage + totalVulnerableDamage) / (totalASDamage + passiveDamage)) / totalDirectBullets :
             0;
@@ -3145,8 +3171,7 @@
                   {/* 敵の追撃火力比率 */}
                   <div className="form-group" style={{ marginTop: '1rem' }}>
                     <label className="form-label" style={{ fontSize: '0.85rem' }}>
-                      敵の（追撃火力／総火力）／追撃弾数<br/>
-                      （重甲の計算用）
+                      敵の（追撃火力／総火力）／追撃弾数（重甲の計算用）
                     </label>
                     <input
                       type="number"
@@ -3564,28 +3589,31 @@
                     </div>
                   </div>
 
-                  {/* 追撃火力比率 */}
-                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
-                    <div className="result-label" style={{ fontSize: '0.8rem' }}>
-                      （追撃火力／総火力）／<br/>追撃弾数
+                  {/* 追撃火力比率・直接ダメージ関連（2列表示） */}
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem', marginTop: '0.5rem' }}>
+                    {/* 追撃火力比率 */}
+                    <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                      <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        （追撃火力／総火力）／追撃弾数
+                      </div>
+                      <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
                     </div>
-                    <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
-                  </div>
-                  
-                  {/* 直接ダメージ総計／直接弾数 */}
-                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
-                    <div className="result-label" style={{ fontSize: '0.8rem' }}>
-                      直接ダメージ総計／<br/>直接弾数
+                    
+                    {/* 直接ダメージ総計／直接弾数 */}
+                    <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                      <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        直接ダメージ総計／直接弾数
+                      </div>
+                      <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamagePerBullet)}%</div>
                     </div>
-                    <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamagePerBullet)}%</div>
-                  </div>
-                  
-                  {/* 直接ダメ総火力比率 */}
-                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.7' }}>
-                    <div className="result-label" style={{ fontSize: '0.8rem' }}>
-                      （直接ダメ総火力／総火力）／<br/>直接弾数
+                    
+                    {/* 直接ダメ総火力比率 */}
+                    <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                      <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        （直接ダメ総火力／総火力）／直接弾数
+                      </div>
+                      <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamageRatio)}</div>
                     </div>
-                    <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamageRatio)}</div>
                   </div>
                   
                   {/* 攻速タイプ別耐久補正 */}</div>
