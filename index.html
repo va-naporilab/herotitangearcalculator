@@ -943,8 +943,72 @@
           return [r1Reduction, r2Reduction, r3Reduction, r4Reduction];
         }
       },
-      'カトレア': { name: '未実装', type: '陸軍' },
-      'シャーリー': { name: '未実装', type: '陸軍' },
+      'シャーリー': {
+        type: '陸軍',
+        shieldBuff: (ex) => {
+          const base = 50 * exclusiveMultipliers[ex];
+          return ex >= 5 ? base + 30 : base;
+        },
+        // 耐性効果：R1のみ6個
+        resistance: { count: 6, round: 1 },
+        // 復讐効果：1ラウンドに1度
+        revenge: (ex) => ({
+          count: ex >= 7 ? 9 : 6,
+          multiplier: 2,  // x2個
+          rate: 0.1111,  // 11.11%
+          reductionRate: 20 * exclusiveMultipliers[ex],  // 復讐ダメ減値
+          damage: (() => {
+            const base = 90;
+            if (ex >= 7) return base + 45 + 25;  // 160
+            if (ex >= 5) return base + 45;  // 135
+            return base;
+          })()
+        }),
+        // PS追加ダメージ：1ラウンドに1度
+        psAdditionalDamage: (ex) => ({
+          damage: 15,
+          multiplier: 2,
+          count: ex >= 7 ? 9 : 6,
+          rate: 0.1111
+        })
+      },
+      'スネークアイズ': {
+        type: '陸軍',
+        shieldBuff: (ex) => {
+          const base = 50 * exclusiveMultipliers[ex];
+          return ex >= 5 ? base + 26.6 : base;
+        },
+        // 耐性効果：専7以上でR1のみ6個
+        resistance: (ex) => ex >= 7 ? { count: 6, round: 1 } : null,
+        // 復讐効果：1ラウンドに1度
+        revenge: (ex) => ({
+          count: 6,
+          multiplier: 2,
+          rate: 0.1111,
+          reductionRate: 20 * exclusiveMultipliers[ex],  // 復讐ダメ減値
+          damage: (() => {
+            const base = 80;
+            if (ex >= 7) return base + 40 + 40;  // 160
+            if (ex >= 5) return base + 40;  // 120
+            return base;
+          })()
+        }),
+        // PSダメ増：10%
+        psDamageIncrease: 10
+      },
+      'カトレア': {
+        type: '陸軍',
+        attackBuff: (ex) => 105 * exclusiveMultipliers[ex],
+        // 復讐ダメージ強化：+39%（専5で+25%、専7で+50%）
+        revengeBoost: (ex) => {
+          let boost = 39;
+          if (ex >= 7) boost += 25 + 50;  // 39 + 75 = 114
+          else if (ex >= 5) boost += 25;  // 39 + 25 = 64
+          return boost;
+        },
+        // 復讐個数増加：+6個
+        revengeCountBonus: 6
+      },
       'ソフィ': {
         type: '海軍',
         shieldBuff: (ex) => 66 * exclusiveMultipliers[ex],
@@ -1366,7 +1430,7 @@
         enemyPowerDurabilityRatio: 0.3,
         myPowerDurabilityRatio: 0.3,
         speedCondition: '同攻速', // 攻速条件
-        directDamageRatio: 0.5 // (直接ダメ総火力/総火力)/直接弾数の初期値（後で専5磁気編成の値で更新）
+        directDamageRatio: 0.1 // (直接ダメ総火力/総火力)/直接弾数の初期値
       });
 
       const [compatibility, setCompatibility] = useState('同兵種');
@@ -2331,8 +2395,80 @@
             armorDurabilityCorrection = 1 + enemyRushExpected * (totalArmorValue / 100) * totalArmorCount;
           }
           
-          // 衰弱等耐久補正 = 衰弱耐久補正 × 重甲耐久補正 × その他耐久補正
-          const totalDebuffDurabilityCorrection = debuffDurabilityCorrection * armorDurabilityCorrection;
+          // 耐性・復讐効果の計算
+          let revengeDirectDamage = 0;
+          let revengeDamageReduction = 0;  // 復讐ダメ減（英雄基礎耐久に加算）
+          let maxRevengeData = null;
+          
+          // 復讐データの収集（最大値のみ適用）
+          heroes.forEach((hero, i) => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            const exLv = hero.exclusiveLv;
+            
+            if (data.revenge) {
+              const revengeData = typeof data.revenge === 'function' ? data.revenge(exLv) : data.revenge;
+              if (!maxRevengeData || revengeData.damage > maxRevengeData.damage) {
+                maxRevengeData = revengeData;
+              }
+            }
+          });
+          
+          // 復讐ダメージ強化の集計（カトレア）
+          let revengeBoost = 100;
+          let revengeCountBonus = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            if (data.revengeBoost) {
+              revengeBoost += data.revengeBoost(hero.exclusiveLv);
+            }
+            if (data.revengeCountBonus !== undefined) {
+              // revengeCountBonusは数値
+              revengeCountBonus += data.revengeCountBonus;
+            }
+          });
+          
+          // 復讐ダメ減と復讐ダメージの計算
+          let revengeExpectedCount = 0;  // スコープを拡大
+          if (maxRevengeData) {
+            // 復讐個数：count × multiplier + bonus（ボーナスはmultiplierの外で加算）
+            const totalRevengeCount = maxRevengeData.count * maxRevengeData.multiplier + revengeCountBonus;
+            revengeExpectedCount = totalRevengeCount * 0.1111;  // 期待値個数
+            
+            // 復讐ダメ減：（復讐個数期待値 / 5.5） × 復讐ダメ減値
+            revengeDamageReduction = (revengeExpectedCount / 5.5) * maxRevengeData.reductionRate;
+            
+            // 復讐ダメージ：直接ダメージ属性（期待値個数を使用、発動率は既に含まれている）
+            revengeDirectDamage = maxRevengeData.damage * revengeExpectedCount * (revengeBoost / 100);
+          }
+          
+          // 耐性個数の集計（R1耐久重みを適用）
+          let totalResistanceCount = 0;
+          const r1DurabilityWeight = durabilityRoundWeights[0];
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            const exLv = hero.exclusiveLv;
+            
+            if (data.resistance) {
+              const resistance = typeof data.resistance === 'function' ? data.resistance(exLv) : data.resistance;
+              if (resistance && resistance.round === 1) {
+                // スネーク・シャーリーの耐性はR1耐久重み係数を適用
+                totalResistanceCount += resistance.count * r1DurabilityWeight;
+              }
+            }
+          });
+          
+          // 耐性効果：敵の直接ダメ比率 × 耐性個数（R1重み適用済み） × 0.1111
+          let resistanceDurabilityBonus = 0;
+          if (totalResistanceCount > 0) {
+            resistanceDurabilityBonus = buffs.directDamageRatio * totalResistanceCount * 0.1111;
+          }
+          
+          // 衰弱等耐久補正 = 衰弱耐久補正 × （1 + 重甲効果 + 耐性効果）
+          const totalDebuffDurabilityCorrection = debuffDurabilityCorrection * 
+                                                   (armorDurabilityCorrection + resistanceDurabilityBonus);
           if (useTitan) {
             heroes.forEach((hero, i) => {
               const data = heroData[hero.name];
@@ -2441,6 +2577,35 @@
                 // 脆弱数期待値を集計
                 totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
               }
+            }
+          });
+
+          // 復讐ダメージをパッシブダメージと直接ダメージに追加
+          let revengeBulletCount = 0;
+          if (revengeDirectDamage > 0 && maxRevengeData) {
+            totalPSDamage += revengeDirectDamage;
+            totalDirectDamage += revengeDirectDamage;
+            // 復讐ダメージの弾数（期待値個数、1個あたり1発）
+            revengeBulletCount = revengeExpectedCount;
+            totalDirectBullets += revengeBulletCount;
+          }
+
+          // シャーリーのPS追加ダメージ
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            const exLv = hero.exclusiveLv;
+            
+            if (hero.name === 'シャーリー' && data.psAdditionalDamage) {
+              const psInfo = data.psAdditionalDamage(exLv);
+              const additionalDamage = psInfo.rate * psInfo.damage * psInfo.multiplier * psInfo.count;
+              totalASDamage += additionalDamage;
+              totalDirectDamage += additionalDamage;
+              totalASDirectDamage += additionalDamage;
+              // 弾数を追加
+              const bulletCount = psInfo.rate * psInfo.multiplier * psInfo.count;
+              totalDirectBullets += bulletCount;
+              totalASDirectBullets += bulletCount;
             }
           });
 
@@ -2588,6 +2753,12 @@
 
           let heroBasePower = (100 + totalAttackBuff) / 100;
           let heroBaseDurability = (100 + totalShieldBuff) / 100;
+          
+          // 復讐ダメ減を英雄基礎耐久に加算（元のダメ減バフを考慮）
+          // 復讐ダメ減による倍率：(100 + ダメ減 + 復讐ダメ減) / (100 + ダメ減)
+          if (revengeDamageReduction > 0) {
+            heroBaseDurability *= (100 + buffs.damageReduction + revengeDamageReduction) / (100 + buffs.damageReduction);
+          }
 
           // ダメ増・ダメ減補正係数の計算
           // 補正係数 = (タイタン等による加算 + 元のバフ+100%) / (元のバフ+100%)
@@ -2667,9 +2838,20 @@
             }
           });
           
-          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス + リヴィア + ユズハ → ダメ増・ダメ減補正係数
+          // スネークアイズのPSダメ増
+          let snakeEyesDamageIncrease = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (hero.name === 'スネークアイズ' && data.psDamageIncrease) {
+              snakeEyesDamageIncrease += data.psDamageIncrease;
+            }
+          });
+          
+          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス + リヴィア + ユズハ + スネークアイズ → ダメ増・ダメ減補正係数
           const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost + shieldTypesDamageIncrease + 
-                                           riviaDamageIncrease + yuzuhaDamageIncrease;
+                                           riviaDamageIncrease + yuzuhaDamageIncrease + snakeEyesDamageIncrease;
           const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost + totalDamageReductionAddition;
           
           // 鼓動効果を通常攻撃に適用
