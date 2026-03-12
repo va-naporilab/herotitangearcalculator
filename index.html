@@ -894,15 +894,13 @@
       },
       'デューク': {
         type: '汎用',
-        ironWallValue: (ex) => {
-          const base = 38 * exclusiveMultipliers[ex];
-          return ex >= 7 ? base + 10 : base;
-        },
-        ironWallRounds: 1,
+        ironWallValue: (ex) => (38 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
         // 鉄壁補正係数の下方修正：(1-40%の場合の鉄壁値×専用) / (1-当英雄の鉄壁値×専用)
         ironWallCorrectionAdjustment: (ex) => {
-          const standard40Value = 40 * exclusiveMultipliers[ex];
-          const dukeValue = 38 * exclusiveMultipliers[ex] + (ex >= 7 ? 10 : 0);
+          // 専7以上の場合、standard40Valueも+10する
+          const standard40Value = (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex];
+          const dukeValue = (38 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex];
           return (1 - standard40Value / 100) / (1 - dukeValue / 100);
         },
         asRate: 36,
@@ -918,11 +916,8 @@
       },
       'ミーチェ': {
         type: '陸軍',
-        ironWallValue: (ex) => {
-          const base = 40 * exclusiveMultipliers[ex];
-          return ex >= 7 ? base + 10 : base;
-        },
-        ironWallRounds: 1,
+        ironWallValue: (ex) => (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
         asRate: 32,
         asDamage: (ex) => 130 * exclusiveMultipliers[ex],
         asBullets: (ex) => ex >= 5 ? 4 : 3,
@@ -1230,11 +1225,8 @@
       },
       'ノルシュ': {
         type: '空軍',
-        ironWallValue: (ex) => {
-          const base = 40 * exclusiveMultipliers[ex];
-          return ex >= 7 ? base + 10 : base;
-        },
-        ironWallRounds: 1,
+        ironWallValue: (ex) => (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
         asRate: 34,
         asDamage: (ex) => {
           const base = 107 * exclusiveMultipliers[ex];
@@ -1248,11 +1240,8 @@
       },
       'ストームシャドー': {
         type: '空軍',
-        ironWallValue: (ex) => {
-          const base = 40 * exclusiveMultipliers[ex];
-          return ex >= 7 ? base + 10 : base;
-        },
-        ironWallRounds: 1,
+        ironWallValue: (ex) => (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
         asRate: 36,
         asDamage: (ex) => 155 * exclusiveMultipliers[ex],
         asBullets: (ex) => ex >= 7 ? 4 : 2,
@@ -1263,11 +1252,8 @@
       },
       'フローリア': {
         type: '空軍',
-        ironWallValue: (ex) => {
-          const base = 40 * exclusiveMultipliers[ex];
-          return ex >= 7 ? base + 10 : base;
-        },
-        ironWallRounds: 1,
+        ironWallValue: (ex) => (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
         asRate: 35,
         asDamage: (ex) => {
           const base = 160 * exclusiveMultipliers[ex];
