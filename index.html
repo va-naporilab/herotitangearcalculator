@@ -1477,20 +1477,20 @@
       
       // タブ折りたたみ状態
       const [expandedTabs, setExpandedTabs] = useState({
-        buffs: true,
-        environment: true,
+        buffs: false,
+        environment: false,
         heroes: true,
         titanEquip: true,
-        buffCalc: true,
+        buffCalc: false,
         heroCalc: true,
-        totalEval: true
+        totalEval: false
       });
       
       // 英雄ごとのタイタン装備折りたたみ状態
       const [expandedTitanHeroes, setExpandedTitanHeroes] = useState({
-        0: true,
-        1: true,
-        2: true
+        0: false,
+        1: false,
+        2: false
       });
       
       const toggleTab = (tabName) => {
@@ -2993,6 +2993,11 @@
           const directDamageRatio = totalDirectBullets > 0 ?
             ((totalDirectDamage + totalVulnerableDamage) / (totalASDamage + passiveDamage)) / totalDirectBullets :
             0;
+          
+          // 追撃依存率 = 追撃総ダメージ / (追撃総ダメージ + パッシブダメージ)
+          const rushDependencyRatio = (totalASDamage + passiveDamage) > 0 ?
+            totalASDamage / (totalASDamage + passiveDamage) :
+            0;
 
           return {
             heroBasePower,
@@ -3008,6 +3013,7 @@
             rushRatio,
             directDamagePerBullet,
             directDamageRatio,
+            rushDependencyRatio,
             heroPower,
             heroDurability,
             heroStrength
@@ -3725,7 +3731,7 @@
                   <div className="result-grid-2">
                     <div className="result-box">
                       <div className="result-label">
-                        <span>AS総ダメージ</span>
+                        <span>追撃総ダメージ</span>
                         {titanEnabled && calculations.increases.totalASDamage > 0 && (
                           <span className="result-increase">+{calculations.increases.totalASDamage}%</span>
                         )}
@@ -3823,6 +3829,14 @@
                         （直接ダメ総火力／総火力）／直接弾数
                       </div>
                       <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamageRatio)}</div>
+                    </div>
+                    
+                    {/* 追撃依存率 */}
+                    <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                      <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        追撃依存率
+                      </div>
+                      <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushDependencyRatio)}</div>
                     </div>
                   </div>
                   
