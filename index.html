@@ -1339,10 +1339,100 @@
       },
       'ミスティ': {
         type: '空軍',
-        shieldBuff: (ex) => 75 * exclusiveMultipliers[ex]
+        openingShield: (ex) => 75 * exclusiveMultipliers[ex],
+        asRate: 34,
+        asDamage: (ex) => {
+          const base = 45 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 30 : base;
+        },
+        asBullets: 9,
+        // AS付随燃焼：30%燃焼を3発（ユズハやノルシュと同時編成時は8発）
+        asBurning: (hasYuzuha, hasNorshu) => {
+          const count = (hasYuzuha || hasNorshu) ? 8 : 3;
+          return { value: 30, count: count };
+        },
+        // PS開幕燃焼：11.11%の確率で50%燃焼を3発
+        openingBurning: { value: 50, count: 3, rate: 0.111 },
+        // PS燃焼強化：専5以上で10%、専7以上で40%
+        burningBoost: (ex) => {
+          if (ex >= 7) return 40;
+          if (ex >= 5) return 10;
+          return 0;
+        }
       },
-      'ギャビー': { name: '未実装', type: '空軍' },
-      'ビスコット': { name: '未実装', type: '空軍' }
+      'ギャビー': {
+        type: '空軍',
+        attackBuff: (ex) => {
+          const base = 125 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 52 : base;
+        },
+        // 連撃ダメ強化（グローバル効果）
+        comboBoost: (ex) => {
+          let boost = 59;
+          if (ex >= 7) boost += 69 + 60;  // 59 + 129 = 188
+          else if (ex >= 5) boost += 69;   // 59 + 69 = 128
+          return boost;
+        },
+        // 鼓動効果：30% × 3ラウンド
+        heartbeat: { value: 30, rounds: 3 }
+      },
+      'ビスコット': {
+        type: '空軍',
+        openingShield: (ex) => 73 * exclusiveMultipliers[ex],
+        // 鼓動効果：15%（専7で+15%）× 3ラウンド
+        heartbeat: (ex) => {
+          const value = ex >= 7 ? 30 : 15;
+          return { value: value, rounds: 3 };
+        },
+        // PS連撃：0.69 × 確率 × 回数
+        psCombo: (ex) => {
+          const triggerRate = ex >= 5 ? 1.0 : 0.5;
+          const count = ex >= 7 ? 3 : 2;
+          return { rate: 0.69 * triggerRate, count: count };
+        },
+        // PS連撃強化（グローバル効果）
+        comboBoost: (ex) => {
+          if (ex >= 7) return 15;
+          if (ex >= 5) return 10;
+          return 5;
+        }
+      },
+      'メイメイ': {
+        type: '空軍',
+        attackBuff: (ex) => {
+          const base = 123 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 52 : base;
+        },
+        // 通常攻撃強化（個別効果）
+        basicAttackBoost: (ex) => {
+          let boost = 12;
+          if (ex >= 7) boost += 33 + 55;  // 12 + 88 = 100
+          else if (ex >= 5) boost += 33;   // 12 + 33 = 45
+          return boost;
+        },
+        // ダメ増バフ加算（ラウンドごと）
+        damageIncreaseAddition: (ex) => {
+          if (ex >= 5) return [3.33, 16.66, 30, 30];
+          return [3.33, 16.66, 20, 20];
+        }
+      },
+      'アエラ': {
+        type: '空軍',
+        openingShield: (ex) => 68 * exclusiveMultipliers[ex],
+        // 鼓動効果：10%（専5で+10%、専7でさらに+10%）× 3ラウンド
+        heartbeat: (ex) => {
+          let value = 10;
+          if (ex >= 7) value += 10 + 10;  // 10 + 20 = 30
+          else if (ex >= 5) value += 10;   // 10 + 10 = 20
+          return { value: value, rounds: 3 };
+        },
+        // PS連撃：0.69 × 確率 × 回数
+        psCombo: (ex) => {
+          const triggerRate = ex >= 5 ? 1.0 : 0.8;
+          const count = ex >= 7 ? 2.8 : 1.8;
+          return { rate: 0.69 * triggerRate, count: count };
+        }
+      }
     };
 
     const presets = {
@@ -1632,22 +1722,26 @@
           let totalASBullets = 0;
           
           // 通常攻撃の兵種別計算
+          let basicAttackBullets = 0;  // 通常攻撃弾数を保存
           const getBasicAttack = () => {
             const types = heroes.map(h => heroData[h.name]?.type).filter(t => t && t !== '汎用');
             const uniqueTypes = [...new Set(types)];
             
             // 海軍のみ、空軍のみ、海軍と汎用のみ、空軍と汎用のみ
             if (uniqueTypes.length === 1 && (uniqueTypes[0] === '海軍' || uniqueTypes[0] === '空軍')) {
+              basicAttackBullets = 3;
               totalDirectBullets += 3;
               return 40 * 3; // 120%
             }
             // 陸軍のみ、陸軍と汎用のみ
             if (uniqueTypes.length === 1 && uniqueTypes[0] === '陸軍') {
+              basicAttackBullets = 1;
               totalDirectBullets += 1;
               // 100% × (ダメ増 + 100 + 17) / (ダメ増 + 100)
               return 100 * (buffs.damageIncrease + 100 + 17) / (buffs.damageIncrease + 100);
             }
             // その他
+            basicAttackBullets = 2.3;
             totalDirectBullets += 2.3;
             return 50 * 2.3; // 115%
           };
@@ -2105,10 +2199,14 @@
               
               totalASBullets += actualRate * bullets;
 
-              // AS付随燃焼（ルチル・ノルシュ）
+              // AS付随燃焼（ルチル・ノルシュ・ミスティ）
               if (data.asBurning) {
                 const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
-                const asBurningDamage = actualRate * data.asBurning.value * data.asBurning.count * burningBoost / 100;
+                // 関数形式の場合はhasYuzuha, hasNorshuを渡す
+                const burningInfo = typeof data.asBurning === 'function' 
+                  ? data.asBurning(hasYuzuha, hasNorshu) 
+                  : data.asBurning;
+                const asBurningDamage = actualRate * burningInfo.value * burningInfo.count * burningBoost / 100;
                 totalASDamage += asBurningDamage;
               }
 
@@ -2199,7 +2297,10 @@
 
             // 開幕燃焼（リヴィア・ユズハ・ストームシャドー）
             if (data.openingBurning) {
-              const openInfo = data.openingBurning(exLv);
+              // 関数形式またはオブジェクト形式に対応
+              const openInfo = typeof data.openingBurning === 'function' 
+                ? data.openingBurning(exLv) 
+                : data.openingBurning;
               if (openInfo) {
                 const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
                 const openingBurningDamage = openInfo.rate * openInfo.value * openInfo.count * burningBoost / 100;
@@ -2625,6 +2726,79 @@
             totalDirectBullets += revengeBulletCount;
           }
 
+          // 連撃システムの計算
+          // 1. 通常攻撃強化の集計（個別効果）
+          let totalBasicAttackBoost = 100;  // 基準値100%
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (data.basicAttackBoost) {
+              const boost = typeof data.basicAttackBoost === 'function' 
+                ? data.basicAttackBoost(hero.exclusiveLv) 
+                : data.basicAttackBoost;
+              totalBasicAttackBoost += boost;
+            }
+          });
+
+          // 2. 連撃ダメ強化の集計（グローバル効果）
+          let totalComboBoost = 100;  // 基準値100%
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (data.comboBoost) {
+              const boost = typeof data.comboBoost === 'function' 
+                ? data.comboBoost(hero.exclusiveLv) 
+                : data.comboBoost;
+              totalComboBoost += boost;
+            }
+          });
+
+          // 3. PS連撃の集計
+          let totalComboExpectedCount = 0;  // 連撃回数期待値
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (data.psCombo) {
+              const combo = typeof data.psCombo === 'function' 
+                ? data.psCombo(hero.exclusiveLv) 
+                : data.psCombo;
+              if (combo) {
+                // 連撃回数期待値 = 発動率 × 連撃回数
+                totalComboExpectedCount += combo.rate * combo.count;
+              }
+            }
+          });
+
+          // 4. 通常攻撃強化を適用（常に適用）- enhancedBasicAttackを外部スコープで定義
+          let enhancedBasicAttack = basicAttackDamage;
+          if (totalBasicAttackBoost > 100) {
+            // 通常攻撃ダメージ = (既存通常攻撃 × 通常攻撃強化倍率)
+            enhancedBasicAttack = basicAttackDamage * (totalBasicAttackBoost / 100);
+            
+            // 通常攻撃を強化された値に置き換え
+            totalPSDamage = totalPSDamage - basicAttackDamage + enhancedBasicAttack;
+            totalDirectDamage = totalDirectDamage - basicAttackDamage + enhancedBasicAttack;
+          }
+
+          // 5. 連撃ダメージの計算
+          if (totalComboExpectedCount > 0) {
+            // 連撃ダメージ = (既存通常攻撃 × 通常攻撃強化倍率) × 連撃ダメ強化 × 連撃回数期待値
+            const comboDamage = enhancedBasicAttack * (totalComboBoost / 100) * totalComboExpectedCount;
+            
+            // 連撃弾数 = 通常攻撃弾数 × 連撃回数期待値
+            const comboBullets = basicAttackBullets * totalComboExpectedCount;
+            
+            // パッシブダメージに加算
+            totalPSDamage += comboDamage;
+            
+            // 直接ダメージに加算（連撃は直接ダメージ属性）
+            totalDirectDamage += comboDamage;
+            totalDirectBullets += comboBullets;
+          }
+
           // シャーリーのPS追加ダメージ
           heroes.forEach(hero => {
             const data = heroData[hero.name];
@@ -2808,9 +2982,11 @@
             sofiDamageBoost = 20;
           }
           
-          // ミスティ・アスカの存在確認（リヴィアの条件用）
+          // ミスティ・アスカ・ユズハ・ノルシュの存在確認
           const hasMisty = heroes.some(h => h.name === 'ミスティ');
           const hasAsuka = heroes.some(h => h.name === 'アスカ');
+          const hasYuzuha = heroes.some(h => h.name === 'ユズハ');
+          const hasNorshu = heroes.some(h => h.name === 'ノルシュ');
           
           // 鼓動効果の計算（通常攻撃のダメ増加算）
           let heartbeatDamageIncrease = 0;
@@ -2884,9 +3060,22 @@
             }
           });
           
-          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス + リヴィア + ユズハ + スネークアイズ → ダメ増・ダメ減補正係数
+          // メイメイのダメ増バフ加算（ラウンドごと、火力重み係数で平均）
+          let meimeiDamageIncrease = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.name === '未実装' || data.name === '外す') return;
+            
+            if (hero.name === 'メイメイ' && data.damageIncreaseAddition) {
+              const damageIncreasePerRound = data.damageIncreaseAddition(hero.exclusiveLv);
+              meimeiDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 
+                sum + val * powerRoundWeights[i], 0);
+            }
+          });
+          
+          // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス + リヴィア + ユズハ + スネークアイズ + メイメイ → ダメ増・ダメ減補正係数
           const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost + shieldTypesDamageIncrease + 
-                                           riviaDamageIncrease + yuzuhaDamageIncrease + snakeEyesDamageIncrease;
+                                           riviaDamageIncrease + yuzuhaDamageIncrease + snakeEyesDamageIncrease + meimeiDamageIncrease;
           const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost + totalDamageReductionAddition;
           
           // 鼓動効果を通常攻撃に適用
@@ -2894,9 +3083,9 @@
             const heartbeatCoeff = (buffs.damageIncrease + 100 + totalDamageIncreaseBonus + heartbeatDamageIncrease) / 
                                    (buffs.damageIncrease + 100 + totalDamageIncreaseBonus);
             totalPSDamage *= heartbeatCoeff;
-            // 通常攻撃のみに鼓動効果を適用してtotalDirectDamageを更新（燃焼などは含めない）
-            const enhancedBasicAttack = basicAttackDamage * heartbeatCoeff;
-            totalDirectDamage = totalDirectDamage - basicAttackDamage + enhancedBasicAttack;
+            // 通常攻撃のみに鼓動効果を適用（通常攻撃強化済みのenhancedBasicAttackに適用）
+            const heartbeatEnhancedBasicAttack = enhancedBasicAttack * heartbeatCoeff;
+            totalDirectDamage = totalDirectDamage - enhancedBasicAttack + heartbeatEnhancedBasicAttack;
           }
           
           if (totalDamageIncreaseBonus > 0) {
