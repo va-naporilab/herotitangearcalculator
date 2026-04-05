@@ -288,17 +288,17 @@
     /* 英雄カード */
     .hero-card {
       background: rgba(15, 23, 42, 0.6);
-      padding: 1rem;
+      padding: 0.5rem 0.75rem;
       border-radius: 0.5rem;
       border: 1px solid rgba(59, 130, 246, 0.2);
-      margin-bottom: 1rem;
+      margin-bottom: 0.5rem;
     }
 
     .hero-title {
-      font-size: 1.125rem;
+      font-size: 1rem;
       font-weight: 700;
       color: #93c5fd;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.375rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
@@ -332,8 +332,9 @@
 
     .hero-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 0.75rem;
+      grid-template-columns: 1fr 120px;
+      gap: 0.5rem;
+      align-items: end;
     }
 
     /* タイタン装備 */
@@ -346,27 +347,27 @@
     }
 
     .titan-hero-name {
-      font-size: 1.125rem;
+      font-size: 1rem;
       font-weight: 700;
-      color: #c084fc;
-      margin-bottom: 0.75rem;
+      color: #fde047;
+      margin-bottom: 0;
     }
 
     .titan-slot {
       background: rgba(30, 41, 59, 0.5);
-      padding: 0.75rem;
+      padding: 0.4rem 0.6rem;
       border-radius: 0.375rem;
-      margin-bottom: 0.75rem;
+      margin-bottom: 0.4rem;
     }
 
     .titan-slot-header {
       display: flex;
       align-items: center;
-      gap: 0.5rem;
-      font-size: 0.875rem;
+      gap: 0.375rem;
+      font-size: 0.8rem;
       font-weight: 600;
       color: #cbd5e1;
-      margin-bottom: 0.5rem;
+      margin-bottom: 0.25rem;
     }
 
     .titan-slot-icon {
@@ -378,8 +379,9 @@
 
     .titan-slot-grid {
       display: grid;
-      grid-template-columns: repeat(2, 1fr);
-      gap: 0.5rem;
+      grid-template-columns: 1fr 80px;
+      gap: 0.375rem;
+      align-items: center;
     }
 
     /* 結果ボックス */
@@ -3048,13 +3050,13 @@
                 <div className={`card-content ${!expandedTabs.heroes ? 'hidden' : ''}`}>
                 
                 {/* 一括専用レベル設定 */}
-                <div style={{ marginBottom: '1rem', padding: '0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(59, 130, 246, 0.3)' }}>
-                  <label className="form-label" style={{ marginBottom: '0.5rem', color: '#60a5fa' }}>デフォルト専用レベル（英雄変更時に適用）</label>
+                <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(59, 130, 246, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <label className="form-label" style={{ marginBottom: 0, color: '#60a5fa', whiteSpace: 'nowrap', fontSize: '0.875rem' }}>デフォルト専用レベル</label>
                   <select
                     value={defaultExclusiveLv}
                     onChange={(e) => setDefaultExclusiveLv(parseInt(e.target.value))}
                     className="form-select"
-                    style={{ maxWidth: '200px' }}
+                    style={{ maxWidth: '120px' }}
                   >
                     <option value={0}>専用なし</option>
                     <option value={3}>専用3</option>
@@ -3076,7 +3078,7 @@
                       alignItems: 'center'
                     }}
                   >
-                    <label className="form-label" style={{ marginBottom: 0, cursor: 'pointer' }}>プリセット選択</label>
+                    <label className="form-label" style={{ marginBottom: 0, cursor: 'pointer' }}>プリセットから選択</label>
                     <span className={`collapse-icon ${!expandedTabs.presets ? 'collapsed' : ''}`} style={{ fontSize: '0.875rem' }}>▼</span>
                   </div>
                   <div 
@@ -3108,8 +3110,8 @@
                 <div className="space-y-4">
                   {heroes.map((hero, i) => (
                     <div key={i} className="hero-card">
-                      <div className="hero-title">
-                        英雄 {i + 1}
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>英雄 {i + 1}</span>
                         {heroData[hero.name]?.type && (
                           <span className={`hero-type-badge type-${
                             heroData[hero.name].type === '陸軍' ? 'land' :
@@ -3120,12 +3122,12 @@
                         )}
                       </div>
                       <div className="hero-grid">
-                        <div className="form-group">
-                          <label className="form-label">名前</label>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
                           <select
                             value={hero.name}
                             onChange={(e) => updateHero(i, 'name', e.target.value)}
                             className="form-select"
+                            style={{ fontSize: '1rem', fontWeight: '700' }}
                           >
                             {/* 外すを一番上に */}
                             <option value="外す">外す</option>
@@ -3160,12 +3162,12 @@
                             </optgroup>
                           </select>
                         </div>
-                        <div className="form-group">
-                          <label className="form-label">専用Lv</label>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
                           <select
                             value={hero.exclusiveLv}
                             onChange={(e) => updateHero(i, 'exclusiveLv', parseInt(e.target.value))}
                             className="form-select"
+                            style={{ fontSize: '0.95rem', fontWeight: '700', textAlign: 'center' }}
                           >
                             <option value={0}>専用なし</option>
                             <option value={3}>専用3</option>
@@ -3207,7 +3209,12 @@
                         onClick={() => toggleTitanHero(heroIdx)}
                         style={{ cursor: 'pointer', marginBottom: '0.5rem' }}
                       >
-                        <div className="titan-hero-name" style={{ margin: 0 }}>{hero.name}</div>
+                        <div className="titan-hero-name" style={{ margin: 0 }}>
+                          {hero.name}
+                          <span style={{ fontSize: '0.8rem', fontWeight: '500', color: '#94a3b8', marginLeft: '0.5rem' }}>
+                            {hero.exclusiveLv === 0 ? '専用なし' : `専用${hero.exclusiveLv}`}
+                          </span>
+                        </div>
                         <span className={`collapse-icon ${!expandedTitanHeroes[heroIdx] ? 'collapsed' : ''}`}>▼</span>
                       </div>
                       {expandedTitanHeroes[heroIdx] && (
