@@ -92,12 +92,16 @@
       display: grid;
       grid-template-columns: 1fr;
       gap: 1.5rem;
+      max-width: 480px;
+      margin: 0 auto;
     }
 
     @media (min-width: 1024px) {
       .grid {
         grid-template-columns: repeat(3, minmax(0, 480px));
-        justify-content: start;
+        max-width: 1500px;
+        margin: 0 auto;
+        justify-content: center;
       }
     }
 
@@ -380,7 +384,7 @@
 
     .titan-slot-grid {
       display: grid;
-      grid-template-columns: 1fr 80px;
+      grid-template-columns: 1fr 120px;
       gap: 0.375rem;
       align-items: center;
     }
@@ -841,15 +845,15 @@
 
     function GameCalculator() {
       const [buffs, setBuffs] = useState({
-        troops: 200,
+        troops: 220,
         soldierLv: 103,
-        life: 3000,
-        attack: 3000,
-        damageIncrease: 400,
-        damageReduction: 400,
-        defense: 140,
-        typeAdvantage: 120,
-        baseShield: 28,
+        life: 3500,
+        attack: 3500,
+        damageIncrease: 500,
+        damageReduction: 500,
+        defense: 160,
+        typeAdvantage: 150,
+        baseShield: 33,
         silenceCount: 0,
         enemyIronWall: '専用5',
         powerDiff: 1.0,
@@ -859,10 +863,10 @@
         speedCondition: '同攻速', // 攻速条件
         directDamageRatio: 0.1, // (直接ダメ総火力/総火力)/直接弾数の初期値
         enemyASRatio: 0.5, // 想定敵の追撃依存率
-        powerDivergenceCoef: 1.466 // 火力乖離係数
+        powerDivergenceCoef: 1.4 // 火力乖離係数
       });
 
-      const [compatibility, setCompatibility] = useState('同兵種');
+      const [compatibility, setCompatibility] = useState('同兵種・不利');
       const [titanEnabled, setTitanEnabled] = useState(true);
       
       // ラウンド重み係数
@@ -909,7 +913,7 @@
       // 敵の鉄壁条件または火力/耐久比が変更されたら火力ラウンド重み係数を自動更新
       React.useEffect(() => {
         const baseWeights = getDefaultPowerRoundWeights(buffs.enemyIronWall);
-        const adjustedWeights = adjustPowerWeightsByRatio(baseWeights, buffs.enemyPowerDurabilityRatio);
+        const adjustedWeights = adjustPowerWeightsByRatio(baseWeights, buffs.enemyPowerDurabilityRatio || 0);
         setPowerRoundWeights(adjustedWeights);
       }, [buffs.enemyIronWall, buffs.enemyPowerDurabilityRatio]);
       
@@ -961,12 +965,30 @@
       
       const updateBuff = (key, value) => {
         if (numericBuffKeys.has(key)) {
-          const parsed = parseFloat(value);
-          // null/空/変換不能な場合は0をセット
-          setBuffs(prev => ({ ...prev, [key]: isNaN(parsed) ? 0 : parsed }));
+          // 空文字列は許可、数値に変換できれば数値を保存、できなければ空文字列を保存
+          if (value === '') {
+            setBuffs(prev => ({ ...prev, [key]: '' }));
+          } else {
+            const parsed = parseFloat(value);
+            setBuffs(prev => ({ ...prev, [key]: isNaN(parsed) ? '' : parsed }));
+          }
         } else {
           // 文字列フィールド（enemyIronWallなど）はそのまま保存
           setBuffs(prev => ({ ...prev, [key]: value }));
+        }
+      };
+
+      // onBlur時に空文字列を0に補完
+      const handleNumericInputBlur = (key) => {
+        if (buffs[key] === '') {
+          setBuffs(prev => ({ ...prev, [key]: 0 }));
+        }
+      };
+
+      // onFocus時に0を空文字列に変換（0を削除して入力可能にする）
+      const handleNumericInputFocus = (key) => {
+        if (buffs[key] === 0) {
+          setBuffs(prev => ({ ...prev, [key]: '' }));
         }
       };
 
@@ -1011,26 +1033,45 @@
         const uniqueTypes = [...new Set(heroTypes)];
         const typeWarning = uniqueTypes.length > 1 ? '⚠️ 英雄の兵種が異なります（混成編成）' : '';
 
-        const soldier = soldierData[buffs.soldierLv];
+        const soldier = soldierData[buffs.soldierLv || 0];
         
         // バフ相性計算
-        const compatDurability = (buffs.life + 100) / 100 * (buffs.damageReduction + 100) / 100 * (buffs.defense + 100) / 100;
+        // 火力乖離係数を攻撃に適用
+        const attackWithDivergence = ((buffs.attack || 0) + 100) * (buffs.powerDivergenceCoef || 1);
+        const damageIncreaseCoeff = ((buffs.damageIncrease || 0) + 100) / 100;
         
-        let compatPower = (buffs.attack + 100) / 100 * (buffs.damageIncrease + 100) / 100;
-        if (compatibility === '有利') {
-          compatPower = (buffs.attack + 100 + buffs.typeAdvantage) / 100 * (buffs.damageIncrease + 100) / 100;
-        } else if (compatibility === '不利') {
-          compatPower = compatPower / (1 + buffs.typeAdvantage / 100);
+        // 相性なしの基本値
+        const baseCompatDurability = ((buffs.life || 0) + 100) / 100 * ((buffs.damageReduction || 0) + 100) / 100 * ((buffs.defense || 0) + 100) / 100;
+        const baseCompatPower = (attackWithDivergence / 100) * damageIncreaseCoeff;
+        
+        let compatDurability = baseCompatDurability;
+        let compatPower = baseCompatPower;
+        
+        // 相性有利時の火力補正
+        if (compatibility === '相性有利') {
+          compatPower = ((attackWithDivergence + (buffs.typeAdvantage || 0)) / 100) * damageIncreaseCoeff;
+        }
+        
+        // 相性耐久補正を直接バフ相性耐久に適用
+        if (compatibility === '相性有利') {
+          compatDurability = compatDurability * ((buffs.typeAdvantage || 0) + 100) / 100;
         }
         
         const compatStrength = compatPower * compatDurability;
-        const compatTroopDurability = compatDurability * buffs.troops;
-        const compatTroopPower = compatPower * buffs.troops;
+        const baseCompatStrength = baseCompatPower * baseCompatDurability;
+        const compatTroopDurability = compatDurability * (buffs.troops || 0);
+        const baseCompatTroopDurability = baseCompatDurability * (buffs.troops || 0);
+        const compatTroopPower = compatPower * (buffs.troops || 0);
+        const baseCompatTroopPower = baseCompatPower * (buffs.troops || 0);
         const compatTroopStrength = compatTroopDurability * compatTroopPower;
+        const baseCompatTroopStrength = baseCompatTroopDurability * baseCompatTroopPower;
         const compatTroopSoldierDurability = compatTroopDurability * soldier.durability * 1000000000; // 1B掛ける
+        const baseCompatTroopSoldierDurability = baseCompatTroopDurability * soldier.durability * 1000000000;
         const compatTroopSoldierPower = compatTroopPower * soldier.power * 1000000000; // 1B掛ける
+        const baseCompatTroopSoldierPower = baseCompatTroopPower * soldier.power * 1000000000;
         // 強さ値は1B^2がかからないように計算
         const compatTroopSoldierStrength = (compatTroopSoldierDurability / 1000000000) * (compatTroopSoldierPower / 1000000000);
+        const baseCompatTroopSoldierStrength = (baseCompatTroopSoldierDurability / 1000000000) * (baseCompatTroopSoldierPower / 1000000000);
 
         // タイタン効果の計算（ON/OFF両方）
         const calculateHeroStats = (useTitan) => {
@@ -1940,7 +1981,7 @@
           // 沈黙耐久係数：1 / (敵AS依存率 × ((9-沈黙数)/9) + (1-敵AS依存率))
           let silenceDurabilityCorrection = 1.0;
           if (totalSilenceCount > 0) {
-            const enemyASRatio = buffs.enemyASRatio;
+            const enemyASRatio = buffs.enemyASRatio || 0;
             const asReductionRatio = (9 - totalSilenceCount) / 9;
             const denominator = enemyASRatio * asReductionRatio + (1 - enemyASRatio);
             silenceDurabilityCorrection = 1 / denominator;
@@ -2670,26 +2711,66 @@
         
         const expectedRounds = calculateExpectedRounds(buffs.myPowerDurabilityRatio, buffs.enemyPowerDurabilityRatio, buffs.powerDiff);
 
+        // 相性火力補正の計算（表示のみ）
+        let compatibilityPowerBonus = 1;
+        let compatibilityDurabilityBonus = 1;
+        if (compatibility === '相性有利') {
+          // 相性火力補正＝(攻撃×火力乖離係数+兵種相性値)/(攻撃×火力乖離係数)
+          compatibilityPowerBonus = (attackWithDivergence + (buffs.typeAdvantage || 0)) / attackWithDivergence;
+          // 相性耐久補正＝(100+兵種相性値)/100
+          compatibilityDurabilityBonus = ((buffs.typeAdvantage || 0) + 100) / 100;
+        }
+
+        // 表示値の計算（実際の計算値は変わらず、表示用のみ）
+        const heroPower_display = withTitan.heroPower * compatibilityPowerBonus;
+        const heroDurability_display = withTitan.heroDurability * compatibilityDurabilityBonus;
+        const heroStrength_display = heroPower_display * heroDurability_display;
+
+        const heroWithoutTitanPower_display = withoutTitan.heroPower * compatibilityPowerBonus;
+        const heroWithoutTitanDurability_display = withoutTitan.heroDurability * compatibilityDurabilityBonus;
+        const heroWithoutTitanStrength_display = heroWithoutTitanPower_display * heroWithoutTitanDurability_display;
+
+        // 編成総合評価での相性増分を計算
+        const compatibilityPowerBonusPercent = ((compatibilityPowerBonus - 1) * 100).toFixed(1);
+        const compatibilityDurationBonusPercent = ((compatibilityDurabilityBonus - 1) * 100).toFixed(1);
+        const compatibilityStrengthBonusPercent = ((compatibilityPowerBonus * compatibilityDurabilityBonus - 1) * 100).toFixed(1);
+
         return {
           typeWarning,
           compatDurability,
+          baseCompatDurability,
           compatPower,
+          baseCompatPower,
           compatStrength,
+          baseCompatStrength,
           compatTroopDurability,
+          baseCompatTroopDurability,
           compatTroopPower,
+          baseCompatTroopPower,
           compatTroopStrength,
+          baseCompatTroopStrength,
           compatTroopSoldierDurability,
+          baseCompatTroopSoldierDurability,
           compatTroopSoldierPower,
+          baseCompatTroopSoldierPower,
           compatTroopSoldierStrength,
+          baseCompatTroopSoldierStrength,
           expectedRounds,
           ...withTitan,
+          // 相性補正を含めた表示値
+          heroPower_display,
+          heroDurability_display,
+          heroStrength_display,
+          heroWithoutTitanPower_display,
+          heroWithoutTitanDurability_display,
+          heroWithoutTitanStrength_display,
           // 編成総合評価（火力に火力乖離係数を適用）
-          totalPower: withTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef,
+          totalPower: withTitan.heroPower * compatTroopSoldierPower,
           totalDurability: withTitan.heroDurability * compatTroopSoldierDurability,
           // 編成の火力耐久比
-          powerDurabilityRatio: (withTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef) / (withTitan.heroDurability * compatTroopSoldierDurability),
+          powerDurabilityRatio: (withTitan.heroPower * compatTroopSoldierPower) / (withTitan.heroDurability * compatTroopSoldierDurability),
           // 総合強さ値は1B^2がかからないように計算（火力乖離係数適用済み）
-          totalStrength: (withTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
+          totalStrength: (withTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
           increases: {
             heroBasePower: calcIncrease(withTitan.heroBasePower, withoutTitan.heroBasePower),
             heroBaseDurability: calcIncrease(withTitan.heroBaseDurability, withoutTitan.heroBaseDurability),
@@ -2701,15 +2782,30 @@
             debuffDurabilityCorrection: calcIncrease(withTitan.debuffDurabilityCorrection, withoutTitan.debuffDurabilityCorrection),
             armorDurabilityCorrection: calcIncrease(withTitan.armorDurabilityCorrection, withoutTitan.armorDurabilityCorrection),
             totalDebuffDurabilityCorrection: calcIncrease(withTitan.totalDebuffDurabilityCorrection, withoutTitan.totalDebuffDurabilityCorrection),
+            compatibilityPower: calcIncrease(heroPower_display, withTitan.heroPower),
+            compatibilityDurability: calcIncrease(heroDurability_display, withTitan.heroDurability),
+            compatibilityStrength: calcIncrease(heroStrength_display, withTitan.heroStrength),
+            compatDurability: calcIncrease(compatDurability, baseCompatDurability),
+            compatPower: calcIncrease(compatPower, baseCompatPower),
+            compatStrength: calcIncrease(compatStrength, baseCompatStrength),
+            compatTroopDurability: calcIncrease(compatTroopDurability, baseCompatTroopDurability),
+            compatTroopPower: calcIncrease(compatTroopPower, baseCompatTroopPower),
+            compatTroopStrength: calcIncrease(compatTroopStrength, baseCompatTroopStrength),
+            compatTroopSoldierDurability: calcIncrease(compatTroopSoldierDurability, baseCompatTroopSoldierDurability),
+            compatTroopSoldierPower: calcIncrease(compatTroopSoldierPower, baseCompatTroopSoldierPower),
+            compatTroopSoldierStrength: calcIncrease(compatTroopSoldierStrength, baseCompatTroopSoldierStrength),
             heroPower: calcIncrease(withTitan.heroPower, withoutTitan.heroPower),
             heroDurability: calcIncrease(withTitan.heroDurability, withoutTitan.heroDurability),
             heroStrength: calcIncrease(withTitan.heroStrength, withoutTitan.heroStrength),
-            totalPower: calcIncrease(withTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef, withoutTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef),
+            totalPower: calcIncrease(withTitan.heroPower * compatTroopSoldierPower, withoutTitan.heroPower * compatTroopSoldierPower),
             totalDurability: calcIncrease(withTitan.heroDurability * compatTroopSoldierDurability, withoutTitan.heroDurability * compatTroopSoldierDurability),
             totalStrength: calcIncrease(
-              (withTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
-              (withoutTitan.heroPower * compatTroopSoldierPower * buffs.powerDivergenceCoef / 1000000000) * (withoutTitan.heroDurability * compatTroopSoldierDurability / 1000000000)
-            )
+              (withTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
+              (withoutTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withoutTitan.heroDurability * compatTroopSoldierDurability / 1000000000)
+            ),
+            compatibilityPowerBonus: parseFloat(compatibilityPowerBonusPercent),
+            compatibilityDurationBonus: parseFloat(compatibilityDurationBonusPercent),
+            compatibilityStrengthBonus: parseFloat(compatibilityStrengthBonusPercent)
           }
         };
       }, [buffs, compatibility, heroes, titanEquip, titanEnabled, powerRoundWeights, durabilityRoundWeights]);
@@ -2749,11 +2845,20 @@
                     <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                       <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap', width: '90px', flexShrink: 0 }}>{label}</label>
                       {type === 'input' && (
-                        <input type="number" value={buffs[key]} onChange={(e) => updateBuff(key, e.target.value)} className="form-input" style={{ flex: 1 }} />
+                        <input 
+                          type="text" 
+                          inputMode="numeric"
+                          value={buffs[key]} 
+                          onChange={(e) => updateBuff(key, e.target.value)} 
+                          onFocus={() => handleNumericInputFocus(key)}
+                          onBlur={() => handleNumericInputBlur(key)}
+                          className="form-input" 
+                          style={{ flex: 1 }} 
+                        />
                       )}
                       {type === 'soldierSelect' && (
                         <select value={buffs[key]} onChange={(e) => updateBuff(key, e.target.value)} className="form-select" style={{ flex: 1 }}>
-                          {[103, 102, 101, 100, 83, 82, 81, 80].map(lv => (<option key={lv} value={lv}>Ｌｖ{lv}</option>))}
+                          {[103, 102, 101, 100, 83, 82, 81, 80].map(lv => (<option key={lv} value={lv}>Lv{lv}</option>))}
                         </select>
                       )}
                       {type === 'shieldSelect' && (
@@ -2777,17 +2882,20 @@
                   <div className="form-group">
                     <label className="form-label">兵種相性設定 (%)</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       value={buffs.typeAdvantage}
                       onChange={(e) => updateBuff('typeAdvantage', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('typeAdvantage')}
+                      onBlur={() => handleNumericInputBlur('typeAdvantage')}
                       className="form-input"
                     />
                   </div>
 
                   <div className="form-group">
-                    <label className="form-label">有利・同兵種・不利</label>
+                    <label className="form-label">兵種相性条件</label>
                     <div className="compatibility-buttons">
-                      {['同兵種', '有利', '不利'].map(comp => (
+                      {['同兵種・不利', '相性有利'].map(comp => (
                         <button
                           key={comp}
                           onClick={() => setCompatibility(comp)}
@@ -2817,11 +2925,14 @@
                   <div className="form-group">
                     <label className="form-label">敵から受ける沈黙の数</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="numeric"
                       min="0"
                       max="9"
                       value={buffs.silenceCount}
                       onChange={(e) => updateBuff('silenceCount', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('silenceCount')}
+                      onBlur={() => handleNumericInputBlur('silenceCount')}
                       className="form-input"
                     />
                   </div>
@@ -2848,10 +2959,13 @@
                         敵の追撃１発の火力重み<br/>（重甲計算用）
                       </label>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         step="0.01"
                         value={buffs.enemyRushRatio}
                         onChange={(e) => updateBuff('enemyRushRatio', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('enemyRushRatio')}
+                        onBlur={() => handleNumericInputBlur('enemyRushRatio')}
                         className="form-input"
                       />
                     </div>
@@ -2860,10 +2974,13 @@
                   <div className="form-group">
                     <label className="form-label">敵の直接攻撃１発の火力重み</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       step="0.01"
                       value={buffs.directDamageRatio}
                       onChange={(e) => updateBuff('directDamageRatio', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('directDamageRatio')}
+                      onBlur={() => handleNumericInputBlur('directDamageRatio')}
                       className="form-input"
                     />
                   </div>
@@ -2904,12 +3021,15 @@
                     <div className="form-group">
                       <label className="form-label">敵の火力／耐久比</label>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         step="0.01"
                         min="0.1"
                         max="0.5"
                         value={buffs.enemyPowerDurabilityRatio}
                         onChange={(e) => updateBuff('enemyPowerDurabilityRatio', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('enemyPowerDurabilityRatio')}
+                        onBlur={() => handleNumericInputBlur('enemyPowerDurabilityRatio')}
                         className="form-input"
                       />
                     </div>
@@ -2919,12 +3039,15 @@
                         自編成の火力／耐久比<br/>（総合評価参照）
                       </label>
                       <input
-                        type="number"
+                        type="text"
+                        inputMode="decimal"
                         step="0.01"
                         min="0.1"
                         max="0.5"
                         value={buffs.myPowerDurabilityRatio}
                         onChange={(e) => updateBuff('myPowerDurabilityRatio', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('myPowerDurabilityRatio')}
+                        onBlur={() => handleNumericInputBlur('myPowerDurabilityRatio')}
                         className="form-input"
                       />
                     </div>
@@ -2987,12 +3110,15 @@
                   <div className="form-group" style={{ marginTop: '1rem' }}>
                     <label className="form-label">火力乖離係数（1～1.6）</label>
                     <input
-                      type="number"
+                      type="text"
+                      inputMode="decimal"
                       step="0.01"
                       min="1"
                       max="1.6"
                       value={buffs.powerDivergenceCoef}
                       onChange={(e) => updateBuff('powerDivergenceCoef', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('powerDivergenceCoef')}
+                      onBlur={() => handleNumericInputBlur('powerDivergenceCoef')}
                       className="form-input"
                     />
                   </div>
@@ -3213,7 +3339,7 @@
                                     <option value="">選択なし</option>
                                     {titanEffects[slotName].effects.map((eff, i) => (
                                       <option key={i} value={eff.name}>
-                                        {eff.name} ({eff.desc})
+                                        {eff.name} （{eff.desc}）
                                       </option>
                                     ))}
                                   </select>
@@ -3230,7 +3356,7 @@
                                         );
                                         const maxLv = effect ? effect.levels.length : 7;
                                         return Array.from({ length: maxLv }, (_, i) => (
-                                          <option key={i} value={i + 1}>{['Ｌｖ１','Ｌｖ２','Ｌｖ３','Ｌｖ４','Ｌｖ５','Ｌｖ６','Ｌｖ７'][i] || `Lv ${i+1}`}</option>
+                                          <option key={i} value={i + 1}>{['Lv１','Lv２','Lv３','Lv４','Lv５','Lv６','Lv７'][i] || `Lv ${i+1}`}</option>
                                         ));
                                       })()}
                                     </select>
@@ -3332,7 +3458,7 @@
                     </div>
                   </div>
 
-                  {/* 強調項目 */}
+                  {/* 强调項目 */}
                   <div className="result-box result-highlight">
                     <div className="result-label">
                       <span>英雄火力</span>
@@ -3341,8 +3467,13 @@
                       )}
                     </div>
                     <div className="result-value value-red" style={{ fontSize: '1.5rem' }}>
-                      {formatNumber(calculations.heroPower)}倍
+                      {formatNumber(calculations.heroPower_display)}倍
                     </div>
+                    {calculations.increases.compatibilityPower > 0 && (
+                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityPower}%</span>
+                      </div>
+                    )}
                   </div>
                   <div className="result-box result-highlight-green">
                     <div className="result-label">
@@ -3352,8 +3483,13 @@
                       )}
                     </div>
                     <div className="result-value value-green" style={{ fontSize: '1.5rem' }}>
-                      {formatNumber(calculations.heroDurability)}倍
+                      {formatNumber(calculations.heroDurability_display)}倍
                     </div>
+                    {calculations.increases.compatibilityDurability > 0 && (
+                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityDurability}%</span>
+                      </div>
+                    )}
                   </div>
                   <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.3), rgba(234, 179, 8, 0.3))' }}>
                     <div className="result-label">
@@ -3363,8 +3499,14 @@
                       )}
                     </div>
                     <div className="result-value value-yellow" style={{ fontSize: '1.5rem' }}>
-                      {formatNumber(calculations.heroStrength)}
+                      {formatNumber(calculations.heroStrength_display)}
                     </div>
+                    {calculations.increases.compatibilityStrength > 0 && (
+                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityStrength}%</span>
+                      </div>
+                    )}
+                  </div>
                   </div>
 
                   {/* 追撃火力比率・直接ダメージ関連（2列表示） */}
@@ -3401,8 +3543,6 @@
                       <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushDependencyRatio)}</div>
                     </div>
                   </div>
-                  
-                  {/* 攻速タイプ別耐久補正 */}</div>
                 </div>
               </div>
 
@@ -3417,54 +3557,72 @@
                   {/* 耐久と火力を2列並び */}
                   <div className="result-grid-2">
                     <div className="result-box">
-                      <div className="result-label">バフ相性耐久</div>
+                      <div className="result-label">
+                        バフ相性耐久
+                      </div>
                       <div className="result-value value-green">{formatNumber(calculations.compatDurability)}</div>
                     </div>
                     <div className="result-box">
-                      <div className="result-label">バフ相性火力</div>
+                      <div className="result-label">
+                        バフ相性火力
+                      </div>
                       <div className="result-value value-red">{formatNumber(calculations.compatPower)}</div>
                     </div>
                   </div>
                   
                   {/* 強さ値（強調） */}
                   <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
-                    <div className="result-label">バフ相性強さ値</div>
+                    <div className="result-label">
+                      バフ相性強さ値
+                    </div>
                     <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatStrength)}</div>
                   </div>
                   
                   {/* 出撃耐久と火力を2列並び */}
                   <div className="result-grid-2">
                     <div className="result-box">
-                      <div className="result-label">バフ相性出撃耐久</div>
+                      <div className="result-label">
+                        バフ相性出撃耐久
+                      </div>
                       <div className="result-value value-green">{formatNumber(calculations.compatTroopDurability)}</div>
                     </div>
                     <div className="result-box">
-                      <div className="result-label">バフ相性出撃火力</div>
+                      <div className="result-label">
+                        バフ相性出撃火力
+                      </div>
                       <div className="result-value value-red">{formatNumber(calculations.compatTroopPower)}</div>
                     </div>
                   </div>
                   
                   {/* 出撃強さ値（強調） */}
                   <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
-                    <div className="result-label">バフ相性出撃強さ値</div>
+                    <div className="result-label">
+                      バフ相性出撃強さ値
+                    </div>
                     <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopStrength)}</div>
                   </div>
                   
                   {/* 兵士耐久と火力を2列並び */}
                   <div className="result-grid-2">
                     <div className="result-box">
-                      <div className="result-label">バフ相性出撃兵士耐久</div>
+                      <div className="result-label">
+                        バフ相性出撃兵士耐久
+                      </div>
                       <div className="result-value value-green">{formatNumber(calculations.compatTroopSoldierDurability)}</div>
                     </div>
                     <div className="result-box">
-                      <div className="result-label">バフ相性出撃兵士火力</div>
+                      <div className="result-label">
+                        バフ相性出撃兵士火力
+                      </div>
                       <div className="result-value value-red">{formatNumber(calculations.compatTroopSoldierPower)}</div>
                     </div>
                   </div>
                   
                   {/* 兵士強さ値（強調） */}
                   <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
-                    <div className="result-label">バフ相性出撃兵士強さ値</div>
+                    <div className="result-label">
+                      バフ相性出撃兵士強さ値
+                    </div>
                     <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopSoldierStrength)}</div>
                   </div>
                 </div>
@@ -3484,24 +3642,38 @@
                     <div className="result-box">
                       <div className="result-label">
                         <span>総合耐久</span>
-                        {titanEnabled && calculations.increases.totalDurability > 0 && (
-                          <span className="result-increase">+{calculations.increases.totalDurability}%</span>
-                        )}
                       </div>
                       <div className="result-value value-green" style={{ fontSize: '1.25rem' }}>
                         {formatNumber(calculations.totalDurability)}
                       </div>
+                      {(titanEnabled && calculations.increases.totalDurability > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0) ? (
+                        <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                          {titanEnabled && calculations.increases.totalDurability > 0 && (
+                            <span className="result-increase">+{calculations.increases.totalDurability}%</span>
+                          )}
+                          {compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0 && (
+                            <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                     <div className="result-box">
                       <div className="result-label">
                         <span>総合火力</span>
-                        {titanEnabled && calculations.increases.totalPower > 0 && (
-                          <span className="result-increase">+{calculations.increases.totalPower}%</span>
-                        )}
                       </div>
                       <div className="result-value value-red" style={{ fontSize: '1.25rem' }}>
                         {formatNumber(calculations.totalPower)}
                       </div>
+                      {(titanEnabled && calculations.increases.totalPower > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0) ? (
+                        <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                          {titanEnabled && calculations.increases.totalPower > 0 && (
+                            <span className="result-increase">+{calculations.increases.totalPower}%</span>
+                          )}
+                          {compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0 && (
+                            <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
+                          )}
+                        </div>
+                      ) : null}
                     </div>
                   </div>
 
@@ -3509,13 +3681,20 @@
                   <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.4), rgba(234, 179, 8, 0.4))', marginTop: '0.5rem' }}>
                     <div className="result-label">
                       <span>編成総合強さ値</span>
-                      {titanEnabled && calculations.increases.totalStrength > 0 && (
-                        <span className="result-increase">+{calculations.increases.totalStrength}%</span>
-                      )}
                     </div>
                     <div className="result-value value-yellow" style={{ fontSize: '2rem', fontWeight: '900' }}>
                       {formatNumber(calculations.totalStrength)}
                     </div>
+                    {(titanEnabled && calculations.increases.totalStrength > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0) ? (
+                      <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        {titanEnabled && calculations.increases.totalStrength > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalStrength}%</span>
+                        )}
+                        {compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0 && (
+                          <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
+                        )}
+                      </div>
+                    ) : null}
                   </div>
 
                   {/* 編成の火力耐久比 */}
