@@ -437,8 +437,8 @@ const heroData = {
         shieldTypesDamageBoost: (ex) => ex >= 7 ? 70 : 35,
         // PS重甲：2枚固定
         psArmor: { value: 50, count: 2 },
-        // ダメ減加算：72%
-        damageReductionAddition: 72,
+        // ダメ減加算：75%
+        damageReductionAddition: 75,
         // 拡散弾数ボーナス：拡散を持つ英雄の弾数+1
         scatterBulletBonus: 1,
         // 拡散ダメ加算：専5以上で+16%、専7でさらに+30%
@@ -450,8 +450,8 @@ const heroData = {
         // 専7以上：全重甲枚数×1.15、種類数+0.12ずつ
         armorMultiplier: (ex) => ex >= 7 ? 1.15 : 1.0,
         shieldTypesBonus: (ex) => ex >= 7 ? 0.12 : 0,
-        // シールド種類数への貢献：0.5固定（マリナと同時なら高い方）
-        shieldTypesContribution: 0.5
+        // シールド種類数への貢献：0.6固定（マリナと同時なら高い方）
+        shieldTypesContribution: 0.6
       },
       'マリナ': {
         type: '海軍',
@@ -460,14 +460,14 @@ const heroData = {
         shieldTypesDamageBoost: (ex) => ex >= 7 ? 60 : 30,
         // PS重甲：1枚（専5で+1）
         psArmor: (ex) => ({ value: 50, count: ex >= 5 ? 2 : 1 }),
-        // ダメ減加算：72%
-        damageReductionAddition: 72,
+        // ダメ減加算：75%
+        damageReductionAddition: 75,
         // 拡散弾数ボーナス：専5以上で拡散を持つ英雄の弾数+1
         scatterBulletBonus: (ex) => ex >= 5 ? 1 : 0,
         // 拡散ダメ加算：専7以上で+30%
         scatterDamageBoost: (ex) => ex >= 7 ? 30 : 0,
-        // シールド種類数への貢献：専5以上で0.5、専5未満で0.3
-        shieldTypesContribution: (ex) => ex >= 5 ? 0.5 : 0.3
+        // シールド種類数への貢献：専5以上で0.6、専5未満で0.3
+        shieldTypesContribution: (ex) => ex >= 5 ? 0.6 : 0.3
       },
       'コレット': {
         type: '海軍',
