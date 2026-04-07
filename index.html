@@ -96,7 +96,8 @@
 
     @media (min-width: 1024px) {
       .grid {
-        grid-template-columns: repeat(3, 1fr);
+        grid-template-columns: repeat(3, minmax(0, 480px));
+        justify-content: start;
       }
     }
 
@@ -117,7 +118,7 @@
     }
 
     .card h2 {
-      font-size: 1.125rem;
+      font-size: 1.25rem;
       font-weight: 700;
       margin-bottom: 0;
       color: #60a5fa;
@@ -446,6 +447,7 @@
       align-items: center;
       cursor: pointer;
       user-select: none;
+      padding: 0.2rem 0;
       margin-bottom: 0.25rem;
     }
 
@@ -494,7 +496,7 @@
     .space-y-2 > * + * { margin-top: 0.25rem; }
     .space-y-3 > * + * { margin-top: 0.25rem; }
     .space-y-4 > * + * { margin-top: 0.3rem; }
-    .space-y-6 > * + * { margin-top: 0.4rem; }
+    .space-y-6 > * + * { margin-top: 0.6rem; }
 
     /* レスポンシブ調整 */
     @media (max-width: 640px) {
@@ -2751,7 +2753,7 @@
                       )}
                       {type === 'soldierSelect' && (
                         <select value={buffs[key]} onChange={(e) => updateBuff(key, e.target.value)} className="form-select" style={{ flex: 1 }}>
-                          {[103, 102, 101, 100, 83, 82, 81, 80].map(lv => (<option key={lv} value={lv}>Lv {lv}</option>))}
+                          {[103, 102, 101, 100, 83, 82, 81, 80].map(lv => (<option key={lv} value={lv}>Ｌｖ{lv}</option>))}
                         </select>
                       )}
                       {type === 'shieldSelect' && (
@@ -2877,9 +2879,9 @@
                       >
                         <option value="鉄壁無し">鉄壁無し</option>
                         <option value="専用なし">専用なし</option>
-                        <option value="専用5">専用5</option>
-                        <option value="専用7">専用7</option>
-                        <option value="専用7＋Lv7破壊不能">専用7＋Lv7破壊不能</option>
+                        <option value="専用5">専用５</option>
+                        <option value="専用7">専用７</option>
+                        <option value="専用7＋Lv7破壊不能">専用７＋Ｌｖ７破壊不能</option>
                       </select>
                     </div>
 
@@ -3033,9 +3035,9 @@
                     style={{ maxWidth: '120px' }}
                   >
                     <option value={0}>専用なし</option>
-                    <option value={3}>専用3</option>
-                    <option value={5}>専用5</option>
-                    <option value={7}>専用7</option>
+                    <option value={3}>専用３</option>
+                    <option value={5}>専用５</option>
+                    <option value={7}>専用７</option>
                   </select>
                 </div>
                 
@@ -3144,9 +3146,9 @@
                             style={{ fontSize: '0.95rem', fontWeight: '700', textAlign: 'center' }}
                           >
                             <option value={0}>専用なし</option>
-                            <option value={3}>専用3</option>
-                            <option value={5}>専用5</option>
-                            <option value={7}>専用7</option>
+                            <option value={3}>専用３</option>
+                            <option value={5}>専用５</option>
+                            <option value={7}>専用７</option>
                           </select>
                         </div>
                       </div>
@@ -3186,7 +3188,7 @@
                         <div className="titan-hero-name" style={{ margin: 0 }}>
                           {hero.name}
                           <span style={{ fontSize: '0.8rem', fontWeight: '500', color: '#94a3b8', marginLeft: '0.5rem' }}>
-                            {hero.exclusiveLv === 0 ? '専用なし' : `専用${hero.exclusiveLv}`}
+                            {hero.exclusiveLv === 0 ? '専用なし' : hero.exclusiveLv === 3 ? '専用３' : hero.exclusiveLv === 5 ? '専用５' : '専用７'}
                           </span>
                         </div>
                         <span className={`collapse-icon ${!expandedTitanHeroes[heroIdx] ? 'collapsed' : ''}`}>▼</span>
@@ -3228,7 +3230,7 @@
                                         );
                                         const maxLv = effect ? effect.levels.length : 7;
                                         return Array.from({ length: maxLv }, (_, i) => (
-                                          <option key={i} value={i + 1}>Lv {i + 1}</option>
+                                          <option key={i} value={i + 1}>{['Ｌｖ１','Ｌｖ２','Ｌｖ３','Ｌｖ４','Ｌｖ５','Ｌｖ６','Ｌｖ７'][i] || `Lv ${i+1}`}</option>
                                         ));
                                       })()}
                                     </select>
@@ -3255,6 +3257,17 @@
                 </div>
                 <div className={`card-content ${!expandedTabs.heroCalc ? 'hidden' : ''}`}>
                   <div className="space-y-2">
+                  {/* 編成メンバー表示 */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', padding: '0.4rem 0.5rem', background: 'rgba(15,23,42,0.5)', borderRadius: '0.375rem', border: '1px solid rgba(99,102,241,0.3)' }}>
+                    {heroes.map((hero, i) => (
+                      <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                          {hero.exclusiveLv === 0 ? '専用なし' : hero.exclusiveLv === 3 ? '専用３' : hero.exclusiveLv === 5 ? '専用５' : '専用７'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
                   {/* 火力と耐久の項目を2列並び */}
                   <div className="result-grid-2">
                     <div className="result-box">
