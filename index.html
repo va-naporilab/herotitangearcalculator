@@ -1227,75 +1227,110 @@
             heroes.flatMap(h => heroData[h.name]?.specialHeroes || [])
           )];
 
-          // 被ダメージ減少シールドの種類数の計算（各ラウンド）
-          const shieldTypesPerRound = [0, 0, 0, 0]; // R1, R2, R3, R4
+          // 被ダメージ減少シールドの種類数の計算
           
-          // ⓪レイチェル or マリナ専5以上 → +0.5ずつ、マリナ専5未満 → +0.3ずつ
-          const hasRachel = heroes.some(h => h.name === 'レイチェル');
-          const marinaTier = heroes.find(h => h.name === 'マリナ')?.exclusiveLv || -1;
-          const baseShieldBonus = hasRachel || marinaTier >= 5 ? 0.5 : marinaTier >= 0 ? 0.3 : 0;
-          if (baseShieldBonus > 0) {
-            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += baseShieldBonus);
+          // ── 重甲率の計算 ──
+          // 各英雄の重甲率を取得し、最大値を合計重甲率とする
+          let maxHeavyArmorRate = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data) return;
+            if (data.heavyArmorRate !== undefined) {
+              const rate = typeof data.heavyArmorRate === 'function'
+                ? data.heavyArmorRate(hero.exclusiveLv)
+                : data.heavyArmorRate;
+              if (rate > maxHeavyArmorRate) maxHeavyArmorRate = rate;
+            }
+          });
+          // 重甲率補填を持つ英雄が1人いるごとに合計重甲率を補填
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.heavyArmorRateComplement === undefined) return;
+            const comp = typeof data.heavyArmorRateComplement === 'function'
+              ? data.heavyArmorRateComplement(hero.exclusiveLv)
+              : data.heavyArmorRateComplement;
+            if (comp > 0) {
+              maxHeavyArmorRate = maxHeavyArmorRate + (1 - maxHeavyArmorRate) * comp;
+            }
+          });
+          const totalHeavyArmorRate = maxHeavyArmorRate;
+
+          // ── 軽甲率の計算 ──
+          // 各英雄の軽甲率を取得し、最大値を合計軽甲率とする
+          let maxLightArmorRate = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data) return;
+            if (data.lightArmorRate !== undefined) {
+              const rate = typeof data.lightArmorRate === 'function'
+                ? data.lightArmorRate(hero.exclusiveLv)
+                : data.lightArmorRate;
+              if (rate > maxLightArmorRate) maxLightArmorRate = rate;
+            }
+          });
+          // 軽甲率補填を持つ英雄が1人いるごとに合計軽甲率を補填
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (!data || data.lightArmorRateComplement === undefined) return;
+            const comp = typeof data.lightArmorRateComplement === 'function'
+              ? data.lightArmorRateComplement(hero.exclusiveLv)
+              : data.lightArmorRateComplement;
+            if (comp > 0) {
+              maxLightArmorRate = maxLightArmorRate + (1 - maxLightArmorRate) * comp;
+            }
+          });
+          const totalLightArmorRate = maxLightArmorRate;
+
+          // ── 鉄壁率の計算（有効ラウンド分の重み×1） ──
+          // 鉄壁を持つ英雄の最大ラウンド数を取得
+          let ironWallMaxRoundsForShield = 0;
+          heroes.forEach(hero => {
+            const data = heroData[hero.name];
+            if (data && data.ironWallRounds) {
+              const rounds = typeof data.ironWallRounds === 'function'
+                ? data.ironWallRounds(hero.exclusiveLv)
+                : data.ironWallRounds;
+              if (rounds > ironWallMaxRoundsForShield) ironWallMaxRoundsForShield = rounds;
+            }
+          });
+          if (ironWallMaxRoundsForShield > 0) {
+            // 破壊不能チェック（タイタンON時のみ）
+            let hasIndestructibleForShield = false;
+            if (useTitan) {
+              heroes.forEach((hero, i) => {
+                titanEquip[i].forEach((equip, slotIdx) => {
+                  if (equip.effect === '破壊不能' && slotNames[slotIdx] === 'armor') {
+                    hasIndestructibleForShield = true;
+                  }
+                });
+              });
+            }
+            if (hasIndestructibleForShield) ironWallMaxRoundsForShield += 1;
           }
-          
-          // ①ミーク → +0.2ずつ、アイリス・新ミーク互換 → +0.4ずつ
-          if (heroes.some(h => h.name === 'ミーク')) {
-            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += 0.2);
-          }
-          if (heroes.some(h => h.name === 'アイリス')) {
-            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += 0.4);
+          // 鉄壁率 = 有効ラウンドの重み×1 の合計
+          let ironWallRate = 0;
+          for (let i = 0; i < ironWallMaxRoundsForShield && i < 4; i++) {
+            ironWallRate += powerRoundWeights[i] * 1;
           }
 
-          
-          // ②コレット専5以上 or スターフ → +0.5ずつ、コレット専5未満 or ルーシィ専5以上 → +0.3ずつ
-          const hasStarf = heroes.some(h => h.name === 'スターフ');
-          const coletTier = heroes.find(h => h.name === 'コレット')?.exclusiveLv || -1;
-          const newColetTier = heroes.find(h => h.name === '新コレット互換')?.exclusiveLv || -1;
-          const lucyTier = heroes.find(h => h.name === 'ルーシィ')?.exclusiveLv || -1;
-          const supportShieldBonus = (hasStarf || coletTier >= 5 || newColetTier >= 5) ? 0.5 : (coletTier >= 0 || newColetTier >= 0 || lucyTier >= 5) ? 0.3 : 0;
-          if (supportShieldBonus > 0) {
-            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += supportShieldBonus);
-          }
-          
-          // ③鉄壁を持つ英雄がいる場合（hasIronWallはまだ設定されていないため、直接チェック）
-          {
-            let ironWallMaxRounds = 0;
-            heroes.forEach(hero => {
-              const data = heroData[hero.name];
-              if (data && data.ironWallRounds) {
-                const rounds = typeof data.ironWallRounds === 'function' ? data.ironWallRounds(hero.exclusiveLv) : data.ironWallRounds;
-                if (rounds > ironWallMaxRounds) ironWallMaxRounds = rounds;
-              }
-            });
-            if (ironWallMaxRounds > 0) {
-              // 破壊不能チェック（タイタンON時のみ）
-              let hasIndestructible = false;
-              if (useTitan) {
-                heroes.forEach((hero, i) => {
-                  titanEquip[i].forEach((equip, slotIdx) => {
-                    if (equip.effect === '破壊不能' && slotNames[slotIdx] === 'armor') {
-                      hasIndestructible = true;
-                    }
-                  });
-                });
-              }
-              if (hasIndestructible) ironWallMaxRounds += 1;
-              // 鉄壁が存在する各ラウンドに+1
-              for (let i = 0; i < ironWallMaxRounds && i < 4; i++) {
-                shieldTypesPerRound[i] += 1;
-              }
-            }
-          }
-          
-          // ④レイチェル専7 → +0.12ずつ
+          // ── シールド種類数 = 合計重甲率 + 合計軽甲率 + 鉄壁率 ──
+          const averageShieldTypes = totalHeavyArmorRate + totalLightArmorRate + ironWallRate;
+
+          // レイチェル専7の+0.12は種類数ベースで維持（averageShieldTypes完成後に加算）
+          const hasRachel = heroes.some(h => h.name === 'レイチェル');
           const rachelTier = heroes.find(h => h.name === 'レイチェル')?.exclusiveLv || -1;
-          if (rachelTier >= 7) {
-            shieldTypesPerRound.forEach((_, i) => shieldTypesPerRound[i] += 0.12);
+
+          // 後続コードとの互換性のために shieldTypesPerRound を作成
+          // （鉄壁は各ラウンドごとに1加算、重甲率・軽甲率は全ラウンド共通）
+          const shieldTypesPerRound = [0, 0, 0, 0];
+          for (let i = 0; i < 4; i++) {
+            shieldTypesPerRound[i] = totalHeavyArmorRate + totalLightArmorRate;
+            if (i < ironWallMaxRoundsForShield) shieldTypesPerRound[i] += 1;
+            if (rachelTier >= 7) shieldTypesPerRound[i] += 0.12;
           }
-          
-          // 火力重み係数を用いた平均種類数を算出
-          const averageShieldTypes = shieldTypesPerRound.reduce((sum, val, i) => 
-            sum + val * powerRoundWeights[i], 0);
+
+          // 互換変数（旧コードで参照されている変数）
+          const marinaTier = heroes.find(h => h.name === 'マリナ')?.exclusiveLv || -1;
 
           // 拡散ダメ加算の集計（レイチェル・マリナ・コレット・ルーシィから）
           let totalScatterDamageBoost = 0;

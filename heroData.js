@@ -341,6 +341,19 @@ const heroData = {
         // 復讐個数増加：+6個
         revengeCountBonus: 6
       },
+      '新カトレア互換': {
+        type: '陸軍',
+        attackBuff: (ex) => 115 * exclusiveMultipliers[ex],
+        // 復讐ダメージ強化：+44%（専5で+28%、専7で+52%）
+        revengeBoost: (ex) => {
+          let boost = 44;
+          if (ex >= 7) boost += 28 + 52;  
+          else if (ex >= 5) boost += 28; 
+          return boost;
+        },
+        // 復讐個数増加：+6個
+        revengeCountBonus: 6
+      },
       'ソフィ': {
         type: '海軍',
         shieldBuff: (ex) => 66 * exclusiveMultipliers[ex],
@@ -391,7 +404,10 @@ const heroData = {
           return { value: 15 * exclusiveMultipliers[ex], rate: adjustedRate };
         },
         // AS重甲付与
-        asArmor: { count: 1.5, value: 15 }
+        asArmor: { count: 1.5, value: 15 },
+        // 重甲率補填・軽甲率補填
+        heavyArmorRateComplement: 0.2,
+        lightArmorRateComplement: 0.2
       },
       '新ミーク互換': {
         type: '海軍',
@@ -428,7 +444,10 @@ const heroData = {
           return { value: 15 * exclusiveMultipliers[ex], rate: adjustedRate };
         },
         // AS重甲付与
-        asArmor: { count: 3, value: 15 }
+        asArmor: { count: 3, value: 15 },
+        // 重甲率補填・軽甲率補填
+        heavyArmorRateComplement: 0.4,
+        lightArmorRateComplement: 0.4
       },
       'レイチェル': {
         type: '海軍',
@@ -450,8 +469,8 @@ const heroData = {
         // 専7以上：全重甲枚数×1.15、種類数+0.12ずつ
         armorMultiplier: (ex) => ex >= 7 ? 1.15 : 1.0,
         shieldTypesBonus: (ex) => ex >= 7 ? 0.12 : 0,
-        // シールド種類数への貢献：0.6固定（マリナと同時なら高い方）
-        shieldTypesContribution: 0.6
+        // 重甲率：固定0.6
+        heavyArmorRate: 0.6
       },
       'マリナ': {
         type: '海軍',
@@ -466,8 +485,8 @@ const heroData = {
         scatterBulletBonus: (ex) => ex >= 5 ? 1 : 0,
         // 拡散ダメ加算：専7以上で+30%
         scatterDamageBoost: (ex) => ex >= 7 ? 30 : 0,
-        // シールド種類数への貢献：専5以上で0.6、専5未満で0.3
-        shieldTypesContribution: (ex) => ex >= 5 ? 0.6 : 0.3
+        // 重甲率：専5以上で0.6、専5未満で0.4
+        heavyArmorRate: (ex) => ex >= 5 ? 0.6 : 0.4
       },
       'コレット': {
         type: '海軍',
@@ -497,8 +516,8 @@ const heroData = {
         shieldTypesScatterBoost: (ex) => ex >= 7 ? 60 : 20,
         // PS：被ダメ減シールド種類数 × 15%（専7で60%）のダメ減加算
         shieldTypesDamageReductionBoost: (ex) => ex >= 7 ? 60 : 15,
-        // シールド種類数への貢献：専5以上で0.5、専5未満で0.3
-        shieldTypesContribution: (ex) => ex >= 5 ? 0.5 : 0.3
+        // 軽甲率：専5以上で0.6、専5未満で0.4
+        lightArmorRate: (ex) => ex >= 5 ? 0.6 : 0.4
       },
       '新コレット互換': {
         type: '海軍',
@@ -529,8 +548,8 @@ const heroData = {
         shieldTypesScatterBoost: (ex) => ex >= 7 ? 60 : 20,
         // PS：被ダメ減シールド種類数 × 15%（専5以上で60%）のダメ減加算
         shieldTypesDamageReductionBoost: (ex) => ex >= 5 ? 60 : 15,
-        // シールド種類数への貢献：専5以上で0.5、専5未満で0.3
-        shieldTypesContribution: (ex) => ex >= 5 ? 0.5 : 0.3
+        // 軽甲率：専5以上で0.6、専5未満で0.4
+        lightArmorRate: (ex) => ex >= 5 ? 0.6 : 0.4
       },
       'ルーシィ': {
         type: '海軍',
@@ -551,13 +570,13 @@ const heroData = {
         shieldTypesScatterBoost: (ex) => ex >= 5 ? 50 : 20,
         // PS：被ダメ減シールド種類数 × 10%（専7で30%）のダメ減加算
         shieldTypesDamageReductionBoost: (ex) => ex >= 7 ? 30 : 10,
-        // シールド種類数への貢献：専5以上のみ0.3
-        shieldTypesContribution: (ex) => ex >= 5 ? 0.3 : 0
+        // 軽甲率：専5以上で0.4、専5未満で0
+        lightArmorRate: (ex) => ex >= 5 ? 0.4 : 0
       },
       'スターフ': {
         type: '海軍',
-        // シールド種類数への貢献：固定0.5
-        shieldTypesContribution: 0.5
+        // 軽甲率：固定0.6
+        lightArmorRate: 0.6
       },
       'リヴィア': {
         type: '空軍',
