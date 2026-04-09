@@ -2235,7 +2235,7 @@
             totalDirectBullets += comboBullets;
           }
 
-          // シャーリーのPS追加ダメージ
+          // シャーリーのPS追加ダメージ（復讐と同様：パッシブ＋直接ダメージ＋直接弾数に計上）
           heroes.forEach(hero => {
             const data = heroData[hero.name];
             if (!data || data.name === '未実装' || data.name === '外す') return;
@@ -2244,13 +2244,10 @@
             if ((hero.name === 'シャーリー' || hero.name === '新シャーリー互換') && data.psAdditionalDamage) {
               const psInfo = data.psAdditionalDamage(exLv);
               const additionalDamage = psInfo.rate * psInfo.damage * psInfo.multiplier * psInfo.count;
-              totalASDamage += additionalDamage;
+              totalPSDamage += additionalDamage;
               totalDirectDamage += additionalDamage;
-              totalASDirectDamage += additionalDamage;
-              // 弾数を追加
               const bulletCount = psInfo.rate * psInfo.multiplier * psInfo.count;
               totalDirectBullets += bulletCount;
-              totalASDirectBullets += bulletCount;
             }
           });
 
