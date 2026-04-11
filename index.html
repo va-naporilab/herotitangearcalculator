@@ -1316,17 +1316,16 @@
           // ── シールド種類数 = 合計重甲率 + 合計軽甲率 + 鉄壁率 ──
           const averageShieldTypes = totalHeavyArmorRate + totalLightArmorRate + ironWallRate;
 
-          // レイチェル専7の+0.12は種類数ベースで維持（averageShieldTypes完成後に加算）
           const hasRachel = heroes.some(h => h.name === 'レイチェル');
           const rachelTier = heroes.find(h => h.name === 'レイチェル')?.exclusiveLv || -1;
 
           // 後続コードとの互換性のために shieldTypesPerRound を作成
           // （鉄壁は各ラウンドごとに1加算、重甲率・軽甲率は全ラウンド共通）
+          // レイチェル専7の+0.12は重甲率補填として averageShieldTypes に反映済み
           const shieldTypesPerRound = [0, 0, 0, 0];
           for (let i = 0; i < 4; i++) {
             shieldTypesPerRound[i] = totalHeavyArmorRate + totalLightArmorRate;
             if (i < ironWallMaxRoundsForShield) shieldTypesPerRound[i] += 1;
-            if (rachelTier >= 7) shieldTypesPerRound[i] += 0.12;
           }
 
           // 互換変数（旧コードで参照されている変数）

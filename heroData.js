@@ -468,9 +468,9 @@ const heroData = {
         },
         // 専7以上：全重甲枚数×1.15、種類数+0.12ずつ
         armorMultiplier: (ex) => ex >= 7 ? 1.15 : 1.0,
-        shieldTypesBonus: (ex) => ex >= 7 ? 0.12 : 0,
-        // 重甲率：固定0.6
-        heavyArmorRate: 0.6
+        // 重甲率：固定0.6、専7以上は重甲率補填+0.12
+        heavyArmorRate: 0.6,
+        heavyArmorRateComplement: (ex) => ex >= 7 ? 0.12 : 0
       },
       'マリナ': {
         type: '海軍',
