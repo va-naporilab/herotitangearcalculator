@@ -3,6 +3,8 @@
 <head>
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="NAPOfavicon.png" type="image/png">
+
   <title>英雄タイタン強さ評価ツール v2.0 Phase 3</title></title>
   <script src="heroData.js"></script>
   <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
@@ -771,11 +773,11 @@
 
 
     const presets = {
-      1: ['ペトラ', 'ミヤ', 'ルネ'],
-      2: ['カトレア', 'シャーリー', 'ミーチェ'],
-      3: ['ノーラ', 'ソフィ', 'ミーク'],
-      4: ['レイチェル', 'コレット', 'アイリス'],
-      5: ['リヴィア', 'ルチル', 'ノルシュ'],
+      1: ['フランカ', 'ミヤ', 'ルネ'],
+      2: ['立華つむぎ', 'メル', 'ミーチェ'],
+      3: ['アデル', 'ソフィ', 'マゼリア'],
+      4: ['マリナ', 'ピスカ', 'アイリス'],
+      5: ['リヴィア（神秘）', 'ルチル', 'ノルシュ'],
       6: ['ギャビー', 'ビスコット', 'フローリア']
     };
 
@@ -1173,12 +1175,12 @@
             }
             
             // ルチルのPS燃焼強化（ラウンドごと、火力重み係数で平均）
-            // リヴィア/ユズハ/ノルシュ/新リヴィア互換との同時編成時に完全な値を返す
+            // リヴィア/ユズハ/ノルシュ/リヴィア（神秘）との同時編成時に完全な値を返す
             if (hero.name === 'ルチル' && data.psBurningBoostPerRound) {
               const hasRivvia = heroes.some(h => h.name === 'リヴィア');
               const hasYuzuha = heroes.some(h => h.name === 'ユズハ');
               const hasNorshu = heroes.some(h => h.name === 'ノルシュ');
-              const hasNewRivvia = heroes.some(h => h.name === '新リヴィア互換');
+              const hasNewRivvia = heroes.some(h => h.name === 'リヴィア（神秘）');
               const boostPerRound = data.psBurningBoostPerRound(hero.exclusiveLv, hasRivvia, hasYuzuha, hasNorshu, hasNewRivvia);
               const avgBoost = boostPerRound.reduce((sum, val, i) => 
                 sum + val * powerRoundWeights[i], 0);
@@ -1222,7 +1224,7 @@
               }
             }
           });
-          // specialHeroesを持つ全英雄のリストをマージ（ノーラ・新ノーラ互換など複数対応）
+          // specialHeroesを持つ全英雄のリストをマージ（ノーラ・アデルなど複数対応）
           const noraSpecialHeroes = [...new Set(
             heroes.flatMap(h => heroData[h.name]?.specialHeroes || [])
           )];
@@ -1385,8 +1387,8 @@
               }
             }
             
-            // コレット・新コレット互換
-            if (hero.name === 'コレット' || hero.name === '新コレット互換') {
+            // コレット・ピスカ
+            if (hero.name === 'コレット' || hero.name === 'ピスカ') {
               if (data.shieldTypesScatterBoost) {
                 totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
               }
@@ -1525,11 +1527,11 @@
             }
           });
 
-          const hasCombo = heroes.some(h => h.name === 'ペトラ' || h.name === '新ペトラ互換') && heroes.some(h => h.name === 'ミヤ' || h.name === 'クラリス');
+          const hasCombo = heroes.some(h => h.name === 'ペトラ' || h.name === 'フランカ') && heroes.some(h => h.name === 'ミヤ' || h.name === 'クラリス');
 
           // 磁気数期待値の集計（アカネのAS拡散ダメ計算用）
           let totalMagneticBulletsExpected = 0;
-          const magneticHeroCount = heroes.filter(h => ['フェルム', 'アカネ', 'ペトラ', '新ペトラ互換', 'アスカ'].includes(h.name)).length - 1; // 自分を除く
+          const magneticHeroCount = heroes.filter(h => ['フェルム', 'アカネ', 'ペトラ', 'フランカ', 'アスカ'].includes(h.name)).length - 1; // 自分を除く
           
           // 脆弱数期待値の集計（アリア＆ティナのASボーナス計算用）
           let totalVulnerableBulletsExpected = 0;
@@ -1577,7 +1579,7 @@
               
               // ソフィ・ヒヨリの異常特攻判定
               const hasAbnormalCombo = (hero.name === 'ソフィ' || hero.name === 'ヒヨリ') &&
-                heroes.some(h => h.name === 'アイリス' || h.name === 'ミーク' || h.name === '新ミーク互換');
+                heroes.some(h => h.name === 'アイリス' || h.name === 'ミーク' || h.name === 'マゼリア');
               const damage = typeof data.asDamage === 'function' 
                 ? (data.asDamage.length >= 2 ? data.asDamage(exLv, hasAbnormalCombo) : data.asDamage(exLv))
                 : data.asDamage;
@@ -1623,13 +1625,13 @@
                 totalASDamage += asBurningDamage;
               }
 
-              if ((hero.name === 'ペトラ' || hero.name === '新ペトラ互換') && data.asExtraEffect) {
+              if ((hero.name === 'ペトラ' || hero.name === 'フランカ') && data.asExtraEffect) {
                 const extra = data.asExtraEffect(exLv, hasCombo);
                 if (extra) {
                   // ルネボーナスを適用した弾数係数
                   const bulletCoefficient = 1.5 + runeMagneticBonus;
                   // AS弾数は英雄ごとに異なる判定
-                  const asBulletsCount = hero.name === '新ペトラ互換' 
+                  const asBulletsCount = hero.name === 'フランカ' 
                     ? (exLv >= 7 ? 5 : 4) 
                     : (exLv >= 5 ? 5 : 4);
                   const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
@@ -1658,8 +1660,8 @@
                 totalASDirectBullets += actualRate * scatterInfo.bullets;
               }
               
-              // コレット・新コレット互換・ルーシィの拡散ダメージ
-              if ((hero.name === 'コレット' || hero.name === '新コレット互換' || hero.name === 'ルーシィ') && data.scatterDamage) {
+              // コレット・ピスカ・ルーシィの拡散ダメージ
+              if ((hero.name === 'コレット' || hero.name === 'ピスカ' || hero.name === 'ルーシィ') && data.scatterDamage) {
                 const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
                 const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
                 
@@ -1677,8 +1679,8 @@
                 // 拡散弾数（基礎弾数 + 拡散弾数ボーナス）
                 let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus;
                 
-                // コレット・新コレット互換：種類数に応じた追加弾数
-                if ((hero.name === 'コレット' || hero.name === '新コレット互換') && data.scatterDamage.conditionalBullets) {
+                // コレット・ピスカ：種類数に応じた追加弾数
+                if ((hero.name === 'コレット' || hero.name === 'ピスカ') && data.scatterDamage.conditionalBullets) {
                   // 各ラウンドで追加弾数を計算して火力重みで平均
                   const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
                     data.scatterDamage.conditionalBullets(exLv, types));
@@ -1818,8 +1820,8 @@
               });
             }
 
-            // ノーラ・新ノーラ互換のPS衰弱付与
-            if ((hero.name === 'ノーラ' || hero.name === '新ノーラ互換') && data.psDebuffValue) {
+            // ノーラ・アデルのPS衰弱付与
+            if ((hero.name === 'ノーラ' || hero.name === 'アデル') && data.psDebuffValue) {
               const debuffRate = data.psDebuffRate(exLv) / 100;
               const enhancedValue = data.psDebuffValue * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
               debuffEffects.push({ value: enhancedValue, rate: debuffRate });
@@ -1833,7 +1835,7 @@
             }
 
             // ミーク・アイリス・デュークのAS衰弱付与
-            if ((hero.name === 'ミーク' || hero.name === '新ミーク互換' || hero.name === 'アイリス' || hero.name === 'デューク') && data.asDebuff) {
+            if ((hero.name === 'ミーク' || hero.name === 'マゼリア' || hero.name === 'アイリス' || hero.name === 'デューク') && data.asDebuff) {
               const debuffInfo = typeof data.asDebuff === 'function' 
                 ? data.asDebuff(exLv, hasRush, buffs.silenceCount)
                 : data.asDebuff;
@@ -2094,8 +2096,8 @@
             if (!data || data.name === '未実装' || data.name === '外す') return;
             const exLv = hero.exclusiveLv;
 
-            // ノーラ・新ノーラ互換のPS脆弱付与（1ラウンドに1度、確率11.11%）
-            if ((hero.name === 'ノーラ' || hero.name === '新ノーラ互換') && data.psVulnerableValue) {
+            // ノーラ・アデルのPS脆弱付与（1ラウンドに1度、確率11.11%）
+            if ((hero.name === 'ノーラ' || hero.name === 'アデル') && data.psVulnerableValue) {
               const vulnerValue = typeof data.psVulnerableValue === 'function' ? data.psVulnerableValue(exLv) : data.psVulnerableValue;
               const triggerRate = data.psVulnerableTriggerRate;
               const baseDamage = data.psVulnerableDamage(exLv);
@@ -2107,8 +2109,8 @@
               totalASDirectDamage += nolaPSVulnerDamage;
             }
 
-            // 新ミーク互換のAS脆弱付与
-            if (hero.name === '新ミーク互換' && data.asVulnerable) {
+            // マゼリアのAS脆弱付与
+            if (hero.name === 'マゼリア' && data.asVulnerable) {
               const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
               const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
               const { value: vulnerValue, count: vulnerCount, lossCoef } = data.asVulnerable;
@@ -2240,7 +2242,7 @@
             if (!data || data.name === '未実装' || data.name === '外す') return;
             const exLv = hero.exclusiveLv;
             
-            if ((hero.name === 'シャーリー' || hero.name === '新シャーリー互換') && data.psAdditionalDamage) {
+            if ((hero.name === 'シャーリー' || hero.name === 'メル') && data.psAdditionalDamage) {
               const psInfo = data.psAdditionalDamage(exLv);
               const additionalDamage = psInfo.rate * psInfo.damage * psInfo.multiplier * psInfo.count;
               totalPSDamage += additionalDamage;
@@ -2283,12 +2285,12 @@
                 }
 
                 // ペトラのAS追加磁気の全突分（磁気属性だが全突対象）
-                if ((hero.name === 'ペトラ' || hero.name === '新ペトラ互換') && data.asExtraEffect) {
+                if ((hero.name === 'ペトラ' || hero.name === 'フランカ') && data.asExtraEffect) {
                   const extra = data.asExtraEffect(exLv, hasCombo);
                   if (extra) {
                     const bulletCoefficient = 1.5 + runeMagneticBonus;
                     // AS弾数は英雄ごとに異なる判定
-                    const asBulletsCount = hero.name === '新ペトラ互換' 
+                    const asBulletsCount = hero.name === 'フランカ' 
                       ? (exLv >= 7 ? 5 : 4) 
                       : (exLv >= 5 ? 5 : 4);
                     const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
@@ -2313,8 +2315,8 @@
                   rushBonus += actualRate * scatterInfo.damage * scatterBullets * (rushValue / 100);
                 }
 
-                // コレット・新コレット互換・ルーシィの拡散ダメージの全突分
-                if ((hero.name === 'コレット' || hero.name === '新コレット互換' || hero.name === 'ルーシィ') && data.scatterDamage) {
+                // コレット・ピスカ・ルーシィの拡散ダメージの全突分
+                if ((hero.name === 'コレット' || hero.name === 'ピスカ' || hero.name === 'ルーシィ') && data.scatterDamage) {
                   const asBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
                   // asDamageが関数なら呼び出し（引数が複数ある可能性を考慮）
                   let damage;
@@ -2335,8 +2337,8 @@
                   // 拡散弾数（基礎弾数 + 拡散弾数ボーナス）
                   let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus;
                   
-                  // コレット・新コレット互換：種類数に応じた追加弾数
-                  if ((hero.name === 'コレット' || hero.name === '新コレット互換') && data.scatterDamage.conditionalBullets) {
+                  // コレット・ピスカ：種類数に応じた追加弾数
+                  if ((hero.name === 'コレット' || hero.name === 'ピスカ') && data.scatterDamage.conditionalBullets) {
                     // 各ラウンドで追加弾数を計算して火力重みで平均
                     const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
                       data.scatterDamage.conditionalBullets(exLv, types));
@@ -2389,8 +2391,8 @@
                   }
                 });
 
-                // 新ミーク互換のAS脆弱付与の全突分
-                if (hero.name === '新ミーク互換' && data.asVulnerable) {
+                // マゼリアのAS脆弱付与の全突分
+                if (hero.name === 'マゼリア' && data.asVulnerable) {
                   const { value: vulnerValue, count: vulnerCount, lossCoef } = data.asVulnerable;
                   const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
                   const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) *
@@ -2473,7 +2475,7 @@
             const data = heroData[hero.name];
             if (!data || data.name === '未実装' || data.name === '外す') return;
             
-            if ((hero.name === 'リヴィア' || hero.name === '新リヴィア互換') && data.psDamageIncreasePerRound) {
+            if ((hero.name === 'リヴィア' || hero.name === 'リヴィア（神秘）') && data.psDamageIncreasePerRound) {
               const damageIncreasePerRound = data.psDamageIncreasePerRound(hero.exclusiveLv, buffs.speedCondition, hasMisty, hasAsuka);
               if (damageIncreasePerRound) {
                 riviaDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 

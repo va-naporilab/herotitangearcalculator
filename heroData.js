@@ -18,7 +18,7 @@ const heroData = {
         asBullets: (ex) => ex >= 5 ? 5 : 4,
         asExtraEffect: (ex, hasCombo) => hasCombo ? { damage: 50, bullets: (ex >= 5 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null
       },
-      '新ペトラ互換': {
+      'フランカ': {
         type: '陸軍',
         attackBuff: (ex) => 115 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => {
@@ -85,9 +85,9 @@ const heroData = {
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
         globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : 1.0,
         specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.22 : 1.0,
-        specialHeroes: ['ミーク', '新ミーク互換', 'アイリス', 'ソフィ', 'ヒヨリ']
+        specialHeroes: ['ミーク', 'マゼリア', 'アイリス', 'ソフィ', 'ヒヨリ']
       },
-      '新ノーラ互換': {
+      'アデル': {
         type: '海軍',
         attackBuff: (ex) => 110 * exclusiveMultipliers[ex],
         // 沈黙効果
@@ -111,7 +111,7 @@ const heroData = {
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
         globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : ex >= 5 ? 1.04 : 1.0,
         specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.24 : ex >= 5 ? 1.08 : 1.0,
-        specialHeroes: ['ミーク', '新ミーク互換', 'アイリス', 'ソフィ', 'ヒヨリ']
+        specialHeroes: ['ミーク', 'マゼリア', 'アイリス', 'ソフィ', 'ヒヨリ']
       },
       'ツバキ': {
         type: '海軍',
@@ -268,7 +268,7 @@ const heroData = {
           rate: 0.1111
         })
       },
-      '新シャーリー互換': {
+      'メル': {
         type: '陸軍',
         // シールド強化バフ
         shieldBuff: (ex) => {
@@ -341,7 +341,7 @@ const heroData = {
         // 復讐個数増加：+6個
         revengeCountBonus: 6
       },
-      '新カトレア互換': {
+      '立華つむぎ': {
         type: '陸軍',
         attackBuff: (ex) => 115 * exclusiveMultipliers[ex],
         // 復讐ダメージ強化：+44%（専5で+28%、専7で+52%）
@@ -409,7 +409,7 @@ const heroData = {
         heavyArmorRateComplement: 0.2,
         lightArmorRateComplement: 0.2
       },
-      '新ミーク互換': {
+      'マゼリア': {
         type: '海軍',
         ironWallValue: (ex) => (ex >= 7 ? 50 : 40) * exclusiveMultipliers[ex],
         ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
@@ -519,7 +519,7 @@ const heroData = {
         // 軽甲率：専5以上で0.6、専5未満で0.4
         lightArmorRate: (ex) => ex >= 5 ? 0.6 : 0.4
       },
-      '新コレット互換': {
+      'ピスカ': {
         type: '海軍',
         openingShield: (ex) => 72 * exclusiveMultipliers[ex],
         asRate: 35,
@@ -616,7 +616,7 @@ const heroData = {
           return baseValues;
         }
       },
-      '新リヴィア互換': {
+      'リヴィア（神秘）': {
         type: '空軍',
         attackBuff: (ex) => {
           const base = 135 * exclusiveMultipliers[ex];
@@ -667,12 +667,12 @@ const heroData = {
         // AS付随燃焼：30%燃焼×3発
         asBurning: { value: 30, count: 3 },
         // PS燃焼強化：グローバル効果、ラウンドごと
-        // リヴィア/ユズハ/ノルシュ/新リヴィア互換との同時編成時に完全な値を返す
+        // リヴィア/ユズハ/ノルシュ/リヴィア（神秘）との同時編成時に完全な値を返す
         psBurningBoostPerRound: (ex, hasRivvia, hasYuzuha, hasNorshu, hasNewRivvia) => {
           const base = [0, 10, 15, 15];
           if (ex >= 5) {
             const boosted = base.map(v => v * 4);
-            // リヴィア/ユズハ/ノルシュ/新リヴィア互換との同時編成時は完全な値
+            // リヴィア/ユズハ/ノルシュ/リヴィア（神秘）との同時編成時は完全な値
             if (hasRivvia || hasYuzuha || hasNorshu || hasNewRivvia) {
               return boosted;
             }
