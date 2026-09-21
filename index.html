@@ -1835,7 +1835,7 @@
             }
 
             // ミーク・アイリス・デュークのAS衰弱付与
-            if ((hero.name === 'ミーク' || hero.name === 'マゼリア' || hero.name === 'アイリス' || hero.name === 'デューク') && data.asDebuff) {
+            if ((hero.name === 'ミーク' || hero.name === 'マゼリア' || hero.name === 'アイリス' || hero.name === 'デューク' || hero.name === 'デスコ') && data.asDebuff) {
               const debuffInfo = typeof data.asDebuff === 'function' 
                 ? data.asDebuff(exLv, hasRush, buffs.silenceCount)
                 : data.asDebuff;
@@ -2563,10 +2563,10 @@
               // 基礎鉄壁耐久係数（タイタンOFFでも適用）
               let baseCorrection = 1.0;
               if (exLv < 5) {
-                baseCorrection = 1.21;
+                baseCorrection = 1.31;
               } else if (exLv === 5) {
                 baseCorrection = 1.516;
-              } else {
+              } else if (exLv >= 7) {
                 baseCorrection = 1.8;
               }
               
@@ -2599,10 +2599,9 @@
               
               let finalCorrection = baseCorrection + destructibleBonus;
               
-              // デュークの鉄壁補正係数の下方修正
-              if (hero.name === 'デューク' && data.ironWallCorrectionAdjustment) {
-                const adjustment = data.ironWallCorrectionAdjustment(exLv);
-                finalCorrection *= adjustment;
+              // デュークなどの鉄壁補正係数の下方修正
+　　　　　　　if (['デューク', 'デスコ'].includes(hero.name) && data.ironWallCorrectionAdjustment) {                const adjustment = data.ironWallCorrectionAdjustment(exLv);
+                finalCorrection = 1+(finalCorrection-1 )* adjustment;
               }
               
               // 上限チェック

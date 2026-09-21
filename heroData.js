@@ -85,7 +85,7 @@ const heroData = {
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
         globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : 1.0,
         specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.22 : 1.0,
-        specialHeroes: ['ミーク', 'マゼリア', 'アイリス', 'ソフィ', 'ヒヨリ']
+        specialHeroes: ['ミーク', 'マゼリア', 'アイリス', 'ソフィ', 'ヒヨリ','デスコ']
       },
       'アデル': {
         type: '海軍',
@@ -111,7 +111,7 @@ const heroData = {
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
         globalASDamageMultiplier: (ex) => ex >= 7 ? 1.12 : ex >= 5 ? 1.04 : 1.0,
         specialHeroesASDamageMultiplier: (ex) => ex >= 7 ? 1.24 : ex >= 5 ? 1.08 : 1.0,
-        specialHeroes: ['ミーク', 'マゼリア', 'アイリス', 'ソフィ', 'ヒヨリ']
+        specialHeroes: ['ミーク', 'マゼリア', 'アイリス', 'ソフィ', 'ヒヨリ','デスコ']
       },
       'ツバキ': {
         type: '海軍',
@@ -215,6 +215,7 @@ const heroData = {
         // 鼓動効果：専5以上で20%×3ラウンド
         heartbeat: (ex) => ex >= 5 ? { value: 20, rounds: 3 } : null
       },
+
       'ミーチェ': {
         type: '陸軍',
         ironWallValue: (ex) => (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex],
@@ -449,11 +450,37 @@ const heroData = {
         heavyArmorRateComplement: 0.4,
         lightArmorRateComplement: 0.4
       },
+      'デスコ': {
+        type: '海軍',
+        ironWallValue: (ex) => (36) * exclusiveMultipliers[ex],
+        ironWallRounds: (ex) => ex >= 5 ? 2 : 1,
+        // 鉄壁補正係数の下方修正：(1-40%の場合の鉄壁値×専用) / (1-当英雄の鉄壁値×専用)
+        ironWallCorrectionAdjustment: (ex) => {
+          // 専7以上の場合、standard40Valueも+10する
+          const standard40Value = (40 + (ex >= 7 ? 10 : 0)) * exclusiveMultipliers[ex];
+          const descoValue = (36) * exclusiveMultipliers[ex];
+          return (1 - standard40Value / 100) / (1 - descoValue / 100);
+        },
+        asRate: 36,
+        asDamage: (ex) => {
+          const base = 80 * exclusiveMultipliers[ex];
+          return ex >= 7 ? base + 30 : ex >= 5 ? base + 15 : base;
+        },
+        asBullets: (ex) =>  ex >= 7 ? 6 : 4,
+        // 衰弱効果：衰弱値15%、衰弱率はミーク比較の憶測値
+        asDebuff: (ex, hasRush, silenceCount) => {
+          const actualRate = 36 * (9 - silenceCount) / 9 / 100;
+          const baseRate = 36 / 100;
+          const baseDebuffRate = ex >= 7 ? (hasRush ? 82 : 76) : (hasRush ? 72 : 66);
+          const adjustedRate = baseDebuffRate * Math.sqrt(actualRate / baseRate) / 100;
+          return { value: 15 * exclusiveMultipliers[ex], rate: adjustedRate };
+        },      
+      },
       'レイチェル': {
         type: '海軍',
         attackBuff: (ex) => 110 * exclusiveMultipliers[ex],
         // PS収束：被ダメ減シールド種類数 × 35%（専7で70%）のダメ増加算
-        shieldTypesDamageBoost: (ex) => ex >= 7 ? 70 : 35,
+        shieldTypesDamageBoost: (ex) => ex >= 5 ? 70 : 35,
         // PS重甲：2枚固定
         psArmor: { value: 50, count: 2 },
         // ダメ減加算：75%
