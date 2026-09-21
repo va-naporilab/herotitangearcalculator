@@ -772,6 +772,17 @@
     };
 
 
+    // ===== システム開発ログ =====
+    // 新しいログは配列の先頭に追加してください（新しい順に表示されます）。
+    // date: 'YYYY-MM-DD', version: 'vX.X.X', category: '機能' | '英雄' | 'バランス' | 'UI' など自由, text: 内容
+    const devLog = [
+      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: '保存データをバフ設定の上に独立配置、「デフォルト設定を読み込む」を追加' },
+      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: '開発ログを実装' },
+      { date: '2026-09-21', version: 'v1.2.1', category: '英雄', text: 'デスコ実装' },
+      { date: '2026-09-21', version: 'v1.2.1', category: '英雄', text: 'レイチェルの収束の加算効果を専7→専5に修正' },
+      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: 'ローカルストレージによる保存機能を実装' }
+    ];
+
     const presets = {
       1: ['フランカ', 'ミヤ', 'ルネ'],
       2: ['立華つむぎ', 'メル', 'ミーチェ'],
@@ -846,7 +857,8 @@
     const slotDisplayNames = ['ライフル', 'アーマー', '視野', 'ヘッド', 'ハンディ', 'ブーツ'];
 
     function GameCalculator() {
-      const [buffs, setBuffs] = useState({
+      // デフォルト値（「デフォルト設定を読み込む」で復元される初期状態）
+      const DEFAULT_BUFFS = {
         troops: 220,
         soldierLv: 103,
         life: 3500,
@@ -862,14 +874,24 @@
         enemyRushRatio: 0.15,
         enemyPowerDurabilityRatio: 0.3,
         myPowerDurabilityRatio: 0.3,
-        speedCondition: '同攻速', // 攻速条件
-        directDamageRatio: 0.1, // (直接ダメ総火力/総火力)/直接弾数の初期値
-        enemyASRatio: 0.5, // 想定敵の追撃依存率
-        powerDivergenceCoef: 1.4 // 火力乖離係数
-      });
+        speedCondition: '同攻速',
+        directDamageRatio: 0.1,
+        enemyASRatio: 0.5,
+        powerDivergenceCoef: 1.4
+      };
+      const DEFAULT_COMPATIBILITY = '同兵種・不利';
+      const DEFAULT_TITAN_ENABLED = true;
+      const DEFAULT_HEROES = [
+        { name: 'ペトラ', exclusiveLv: 5 },
+        { name: 'ミヤ', exclusiveLv: 5 },
+        { name: 'ルネ', exclusiveLv: 5 }
+      ];
+      const DEFAULT_EXCLUSIVE_LV = 5;
 
-      const [compatibility, setCompatibility] = useState('同兵種・不利');
-      const [titanEnabled, setTitanEnabled] = useState(true);
+      const [buffs, setBuffs] = useState({ ...DEFAULT_BUFFS });
+
+      const [compatibility, setCompatibility] = useState(DEFAULT_COMPATIBILITY);
+      const [titanEnabled, setTitanEnabled] = useState(DEFAULT_TITAN_ENABLED);
       
       // ラウンド重み係数
       const [powerRoundWeights, setPowerRoundWeights] = useState(getDefaultPowerRoundWeights('専用5'));
@@ -925,10 +947,12 @@
         environment: false,
         heroes: true,
         presets: false,
+        saveData: false,
         titanEquip: true,
         buffCalc: false,
         heroCalc: true,
-        totalEval: false
+        totalEval: false,
+        devLog: false
       });
       
       // 英雄ごとのタイタン装備折りたたみ状態
@@ -946,18 +970,150 @@
         setExpandedTitanHeroes(prev => ({...prev, [heroIndex]: !prev[heroIndex]}));
       };
 
-      const [heroes, setHeroes] = useState([
-        { name: 'ペトラ', exclusiveLv: 5 },
-        { name: 'ミヤ', exclusiveLv: 5 },
-        { name: 'ルネ', exclusiveLv: 5 }
-      ]);
+      const [heroes, setHeroes] = useState([...DEFAULT_HEROES]);
 
       // 一括専用レベル設定（デフォルト: 専用5）
-      const [defaultExclusiveLv, setDefaultExclusiveLv] = useState(5);
+      const [defaultExclusiveLv, setDefaultExclusiveLv] = useState(DEFAULT_EXCLUSIVE_LV);
 
       const [titanEquip, setTitanEquip] = useState(
         heroes.map(() => slotNames.map(() => ({ effect: '', level: 1 })))
       );
+
+      // ===== ローカルストレージ保存機能 =====
+      const STORAGE_KEY = 'gameCalculatorSaveData';
+      const [saveSlots, setSaveSlots] = useState({});
+      const [saveMessage, setSaveMessage] = useState('');
+      const [newSlotName, setNewSlotName] = useState('');
+      const isInitialLoad = React.useRef(true);
+
+      // 現在の入力状態をまとめて取得
+      const getCurrentState = () => ({
+        buffs,
+        compatibility,
+        titanEnabled,
+        powerRoundWeights,
+        durabilityRoundWeights,
+        heroes,
+        defaultExclusiveLv,
+        titanEquip
+      });
+
+      // 状態を復元
+      const applyState = (state) => {
+        if (!state) return;
+        if (state.buffs) setBuffs(state.buffs);
+        if (state.compatibility) setCompatibility(state.compatibility);
+        if (typeof state.titanEnabled === 'boolean') setTitanEnabled(state.titanEnabled);
+        if (state.powerRoundWeights) setPowerRoundWeights(state.powerRoundWeights);
+        if (state.durabilityRoundWeights) setDurabilityRoundWeights(state.durabilityRoundWeights);
+        if (state.heroes) setHeroes(state.heroes);
+        if (typeof state.defaultExclusiveLv === 'number') setDefaultExclusiveLv(state.defaultExclusiveLv);
+        if (state.titanEquip) setTitanEquip(state.titanEquip);
+      };
+
+      // 起動時：自動保存された「最後の状態」を読み込み、保存スロット一覧も読み込む
+      React.useEffect(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.autoSave) {
+              applyState(parsed.autoSave);
+            }
+            if (parsed.slots) {
+              setSaveSlots(parsed.slots);
+            }
+          }
+        } catch (e) {
+          console.error('ローカルストレージの読み込みに失敗しました', e);
+        } finally {
+          isInitialLoad.current = false;
+        }
+      }, []);
+
+      // 入力値が変わるたびに自動保存（「最後の状態」として保持）
+      React.useEffect(() => {
+        if (isInitialLoad.current) return;
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          parsed.autoSave = getCurrentState();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        } catch (e) {
+          console.error('自動保存に失敗しました', e);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [buffs, compatibility, titanEnabled, powerRoundWeights, durabilityRoundWeights, heroes, defaultExclusiveLv, titanEquip]);
+
+      // 名前付きスロットへの保存（上書き時は確認）
+      const saveToSlot = (slotName, forceOverwrite = false) => {
+        if (!slotName) return;
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          parsed.slots = parsed.slots || {};
+
+          if (!forceOverwrite && parsed.slots[slotName]) {
+            const confirmed = window.confirm(`「${slotName}」は既に存在します。上書き保存しますか？`);
+            if (!confirmed) return;
+          }
+
+          parsed.slots[slotName] = {
+            data: getCurrentState(),
+            savedAt: new Date().toLocaleString('ja-JP'),
+            heroStrength: calculations?.heroStrength_display ?? null,
+            totalStrength: calculations?.totalStrength ?? null
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          setSaveSlots(parsed.slots);
+          setSaveMessage(`「${slotName}」に保存しました`);
+          setTimeout(() => setSaveMessage(''), 2500);
+        } catch (e) {
+          console.error('保存に失敗しました', e);
+          setSaveMessage('保存に失敗しました');
+          setTimeout(() => setSaveMessage(''), 2500);
+        }
+      };
+
+      // 名前付きスロットの読み込み
+      const loadFromSlot = (slotName) => {
+        const slot = saveSlots[slotName];
+        if (!slot) return;
+        applyState(slot.data);
+        setSaveMessage(`「${slotName}」を読み込みました`);
+        setTimeout(() => setSaveMessage(''), 2500);
+      };
+
+      // 名前付きスロットの削除
+      const deleteSlot = (slotName) => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          if (parsed.slots) {
+            delete parsed.slots[slotName];
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            setSaveSlots(parsed.slots);
+          }
+        } catch (e) {
+          console.error('削除に失敗しました', e);
+        }
+      };
+
+      // デフォルト設定を読み込む（全入力値を初期値に戻す）
+      const loadDefaultSettings = () => {
+        setBuffs({ ...DEFAULT_BUFFS });
+        setCompatibility(DEFAULT_COMPATIBILITY);
+        setTitanEnabled(DEFAULT_TITAN_ENABLED);
+        setPowerRoundWeights(getDefaultPowerRoundWeights(DEFAULT_BUFFS.enemyIronWall));
+        setDurabilityRoundWeights(defaultDurabilityRoundWeights);
+        const resetHeroes = DEFAULT_HEROES.map(h => ({ ...h }));
+        setHeroes(resetHeroes);
+        setDefaultExclusiveLv(DEFAULT_EXCLUSIVE_LV);
+        setTitanEquip(resetHeroes.map(() => slotNames.map(() => ({ effect: '', level: 1 }))));
+        setSaveMessage('デフォルト設定を読み込みました');
+        setTimeout(() => setSaveMessage(''), 2500);
+      };
+      // ===== ローカルストレージ保存機能ここまで =====
 
       const numericBuffKeys = new Set([
         'troops', 'soldierLv', 'life', 'attack', 'damageIncrease', 'damageReduction',
@@ -2849,9 +3005,134 @@
             <h1>
               <CalculatorIcon />
               英雄タイタン強さ評価ツール
-              <span className="version-badge">v2.0 Phase 3</span>
+              <span className="version-badge">v1.2.1</span>
             </h1>
             <p>by Napo  feat.Sonnet</p>
+          </div>
+
+          {/* 保存データ（折りたたみ可能・バフ設定の上に独立配置） */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <div className="card-header" onClick={() => toggleTab('saveData')}>
+              <h2>💾 保存データ</h2>
+              <span className={`collapse-icon ${!expandedTabs.saveData ? 'collapsed' : ''}`}>▼</span>
+            </div>
+            <div className={`card-content ${!expandedTabs.saveData ? 'hidden' : ''}`}>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+                現在の入力値（バフ・環境・英雄・装備など）は常に自動でこのブラウザに保存され、次回開いたときに復元されます。
+                さらに、名前を付けて複数の編成を保存・呼び出しできます。
+              </div>
+
+              {/* 新規保存＋デフォルト読込 */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={newSlotName}
+                  onChange={(e) => setNewSlotName(e.target.value)}
+                  placeholder="保存名を入力（例：磁気編成専5）"
+                  className="form-input"
+                  style={{ flex: 1, minWidth: '160px' }}
+                />
+                <button
+                  onClick={() => {
+                    if (newSlotName.trim()) {
+                      saveToSlot(newSlotName.trim());
+                      setNewSlotName('');
+                    }
+                  }}
+                  className="btn btn-primary"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  名前を付けて保存
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm('すべての入力値をデフォルト設定に戻します。よろしいですか？')) {
+                      loadDefaultSettings();
+                    }
+                  }}
+                  className="btn btn-secondary"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  デフォルト設定を読み込む
+                </button>
+              </div>
+
+              {saveMessage && (
+                <div style={{ 
+                  marginBottom: '0.75rem', 
+                  padding: '0.5rem 0.75rem', 
+                  background: 'rgba(34, 197, 94, 0.15)', 
+                  border: '1px solid rgba(34, 197, 94, 0.4)',
+                  borderRadius: '0.375rem',
+                  color: '#86efac',
+                  fontSize: '0.8rem'
+                }}>
+                  {saveMessage}
+                </div>
+              )}
+
+              {/* 保存済みスロット一覧 */}
+              {Object.keys(saveSlots).length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>
+                  保存されたデータはまだありません
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(saveSlots)
+                    .sort((a, b) => (b[1].savedAt || '').localeCompare(a[1].savedAt || ''))
+                    .map(([name, slot]) => (
+                    <div 
+                      key={name} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        padding: '0.5rem 0.75rem',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: '0.375rem'
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {name}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                          {slot.savedAt}
+                        </div>
+                        {(slot.heroStrength != null || slot.totalStrength != null) && (
+                          <div style={{ fontSize: '0.7rem', color: '#facc15', marginTop: '0.15rem' }}>
+                            {slot.heroStrength != null && <span>英雄強さ値: {formatNumber(slot.heroStrength)}</span>}
+                            {slot.heroStrength != null && slot.totalStrength != null && <span style={{ margin: '0 0.4rem', color: '#475569' }}>|</span>}
+                            {slot.totalStrength != null && <span>編成総合強さ値: {formatNumber(slot.totalStrength)}</span>}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
+                        <button
+                          onClick={() => loadFromSlot(name)}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}
+                        >
+                          読込
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`「${name}」を削除しますか？`)) {
+                              deleteSlot(name);
+                            }
+                          }}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem', color: '#fca5a5' }}
+                        >
+                          削除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
 
           <div className="grid">
@@ -3740,6 +4021,66 @@
                   </div>
                 </div>
                 </div>
+              </div>
+            </div>
+          </div>
+
+          {/* システム開発ログ */}
+          <div className="card" style={{ marginTop: '1.5rem' }}>
+            <div className="card-header" onClick={() => toggleTab('devLog')}>
+              <h2>📝 システム開発ログ</h2>
+              <span className={`collapse-icon ${!expandedTabs.devLog ? 'collapsed' : ''}`}>▼</span>
+            </div>
+            <div className={`card-content ${!expandedTabs.devLog ? 'hidden' : ''}`}>
+              <div className="space-y-2">
+                {devLog.map((log, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.75rem',
+                      padding: '0.5rem 0.75rem',
+                      background: i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    <span style={{ color: '#64748b', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {log.date}
+                    </span>
+                    {log.version && (
+                      <span style={{ color: '#fbbf24', whiteSpace: 'nowrap', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                        {log.version}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        whiteSpace: 'nowrap',
+                        padding: '0.1rem 0.5rem',
+                        borderRadius: '999px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        background:
+                          log.category === '英雄' ? 'rgba(34, 197, 94, 0.15)' :
+                          log.category === 'バランス' ? 'rgba(239, 68, 68, 0.15)' :
+                          log.category === 'UI' ? 'rgba(168, 85, 247, 0.15)' :
+                          'rgba(59, 130, 246, 0.15)',
+                        color:
+                          log.category === '英雄' ? '#86efac' :
+                          log.category === 'バランス' ? '#fca5a5' :
+                          log.category === 'UI' ? '#d8b4fe' :
+                          '#93c5fd'
+                      }}
+                    >
+                      {log.category}
+                    </span>
+                    <span>{log.text}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#64748b' }}>
+                ※ このログはコード内の <code>devLog</code> 配列を直接編集することで更新できます（先頭に追加＝最新表示）。
               </div>
             </div>
           </div>
