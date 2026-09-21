@@ -2455,32 +2455,17 @@
                   }
                 }
 
-                // アカネのAS追加直接ダメージの全突分（旧：拡散ダメ）
+                // アカネのAS追加直接ダメージの全突分（拡散ダメージではないため、レイチェル等の拡散補正は適用しない）
                 if (hero.name === 'アカネ' && data.asScatterDamage) {
                   const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
-                  
-                  // レイチェルの拡散弾数ボーナス
-                  let scatterBullets = scatterInfo.bullets;
-                  if (hasRachel) {
-                    const rachelData = heroData['レイチェル'];
-                    if (rachelData && rachelData.scatterBulletBonus) {
-                      scatterBullets += rachelData.scatterBulletBonus;
-                    }
-                  }
-                  
-                  rushBonus += actualRate * scatterInfo.damage * scatterBullets * (rushValue / 100);
+                  rushBonus += actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
                 }
 
                 // コレット・ピスカ・ルーシィの拡散ダメージの全突分
                 if ((hero.name === 'コレット' || hero.name === 'ピスカ' || hero.name === 'ルーシィ') && data.scatterDamage) {
                   const asBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
                   // asDamageが関数なら呼び出し（引数が複数ある可能性を考慮）
-                  let damage;
-                  if (typeof data.asDamage === 'function') {
-                    damage = data.asDamage(exLv, hasAbnormalCombo);
-                  } else {
-                    damage = data.asDamage;
-                  }
+                  const damage = typeof data.asDamage === 'function' ? data.asDamage(exLv) : data.asDamage;
                   
                   // 拡散基礎ダメージ（ASダメージの一定割合）
                   const baseScatterRatio = data.scatterDamage.baseRatio;
