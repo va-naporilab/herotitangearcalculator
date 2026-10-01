@@ -19,7 +19,7 @@
 //   calculations.damageLedger            … タイタン反映後（withTitan）
 //   calculations.damageLedgerWithoutTitan … タイタン無し
 //   最終集計（追撃総ダメージ=AS / パッシブダメージ=PS）に入る全項目に、由来のタグを付けた記録。
-//     entries[] : { hero, heroIndex, phase, kind, origin, source, slot, value, share }
+//     entries[] : { hero, heroIndex, phase, kind, origin, source, slot, value, heartbeat, share }
 //       hero   : 英雄名（通常攻撃など英雄に属さないものは null）
 //       phase  : 'AS' | 'PS'（実際に加算された集計先。アカネ・フェルムのPS磁気はAS側に入る。PS脆弱はPS側）
 //       kind   : 'direct' | 'magnetic' | 'burning' | 'vulnerable'
@@ -131,10 +131,15 @@ function calculateAll({
     let totalDirectDamage = 0;
     let totalDirectBullets = 0;
     
-    // 脆弱ダメージ追跡（脆弱属性）
-    let totalVulnerableDamage = 0;
+    // 脆弱ダメージ追跡（属性別に別々に集計）
+    //  ・AS属性の脆弱（タイタン破凱・マゼリア）: totalASVulnerableDamage。AS集計(totalASDamage)に入る。
+    //  ・PS属性の脆弱（ノーラ・アデル／ソフィ・ヒヨリ／アリア＆ティナ）: totalPSVulnerableDamage。
+    //    PS集計(totalPSDamage)に入り、属性は直接ダメージ(totalDirectDamage)側で計上する（脆弱側の合計には入れない）。
+    // どちらも総火力(totalASDamage + passiveDamage)には1回だけ入る。下の集計変数同士を足し合わせる際の二重計上に注意。
+    let totalASVulnerableDamage = 0;
+    let totalPSVulnerableDamage = 0;
     
-    // AS直接ダメージ追跡（追撃火力比率計算用、磁気・燃焼を除外）
+    // AS直接ダメージ追跡（追撃火力比率計算用、磁気・燃焼・脆弱を除外。AS脆弱は totalASVulnerableDamage に別集計）
     let totalASDirectDamage = 0;
     let totalASDirectBullets = 0;
     
@@ -150,13 +155,13 @@ function calculateAll({
     //  phase  : 実際に加算された集計先 'AS'(追撃総ダメージ) | 'PS'(パッシブダメージ)
     //  kind   : 'direct'(直接) | 'magnetic'(磁気) | 'burning'(燃焼) | 'vulnerable'(脆弱：AS側の破凱・マゼリア・全軍突撃分のみ。PS脆弱は PS/direct)
     //  origin : 'base'(通常攻撃) | 'hero'(英雄スキル) | 'titan'(タイタン装備) | 'awakening'(覚醒スキル)
-    //  source : 効果名ラベル / slot : タイタン装備の部位 / value : 加算された値
+    //  source : 効果名ラベル / slot : タイタン装備の部位 / value : 加算された値（鼓動反映後）
+//  heartbeat : 鼓動の係数が掛かった項目か。鼓動は通常攻撃と連撃にのみ作用する（他のPSには作用しない）
     // ※既存の集計変数への加算はそのまま。各加算の直後に記録だけを足している（計算値には影響しない）
     const damageLedger = [];
-    const damageLedgerMeta = { heartbeatCoeff: 1 };
-const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === phase && e.kind === kind) ? sum + e.value : sum, 0);
+    const damageLedgerMeta = { heartbeatCoeff: 1, heartbeatTargets: ['通常攻撃', '連撃'] };
     const ledgerAdd = ({ hero = null, idx = null, phase, kind, origin, source, value, slot = null }) => {
-      const entry = { hero, heroIndex: idx, phase, kind, origin, source, slot, value };
+      const entry = { hero, heroIndex: idx, phase, kind, origin, source, slot, value, heartbeat: false };
       damageLedger.push(entry);
       return entry;
     };
@@ -1272,10 +1277,8 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
                                   (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
               totalASDamage += vulnerDamage;
               ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'titan', source: 'タイタン:破凱', value: vulnerDamage, slot: slotNames[slotIdx] });
-              // 脆弱ダメージは脆弱属性として別途追跡（弾数はカウントしない）
-              totalVulnerableDamage += vulnerDamage;
-              // AS直接ダメージとして追跡（追撃火力比率計算用）
-              totalASDirectDamage += vulnerDamage;
+              // AS属性の脆弱として別途追跡（弾数はカウントしない。AS直接ダメージ側には入れない＝二重計上防止）
+              totalASVulnerableDamage += vulnerDamage;
               // 脆弱数期待値を集計
               totalVulnerableBulletsExpected += asRate * vulnerCount * lossCoef * 0.95;
             }
@@ -1306,6 +1309,7 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
         const nolaPSVulnerDamage = baseDamage * (vulnerValue / 100) * (vulnerBoost / 100) * triggerRate / ((100 + totalAttackBuff) / 100);
         totalPSDamage += nolaPSVulnerDamage;
         psVulnerableDirectPending += nolaPSVulnerDamage;
+        totalPSVulnerableDamage += nolaPSVulnerDamage;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS脆弱', value: nolaPSVulnerDamage });
       }
 
@@ -1320,8 +1324,8 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
                              (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
         totalASDamage += vulnerDamage;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'hero', source: 'AS脆弱', value: vulnerDamage });
-        totalVulnerableDamage += vulnerDamage;
-        totalASDirectDamage += vulnerDamage;
+        // AS属性の脆弱として別途追跡（AS直接ダメージ側には入れない＝二重計上防止）
+        totalASVulnerableDamage += vulnerDamage;
         totalVulnerableBulletsExpected += actualRate * vulnerCount * lossCoef * 0.95;
       }
 
@@ -1332,6 +1336,7 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
         const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
         totalPSDamage += psvulnerDamage;
         psVulnerableDirectPending += psvulnerDamage;
+        totalPSVulnerableDamage += psvulnerDamage;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS脆弱', value: psvulnerDamage });
       }
       
@@ -1345,6 +1350,7 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
                                      (psInfo.value / 100) * psInfo.count * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
           totalPSDamage += ariaPSVulnerDamage;
           psVulnerableDirectPending += ariaPSVulnerDamage;
+          totalPSVulnerableDamage += ariaPSVulnerDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS脆弱', value: ariaPSVulnerDamage });
           // 脆弱数期待値を集計
           totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
@@ -1426,9 +1432,11 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
     }
 
     // 5. 連撃ダメージの計算
+    let totalComboDamage = 0;  // 鼓動の対象になる連撃ダメージ合計（外部スコープで保持）
     if (totalComboExpectedCount > 0) {
       // 連撃ダメージ = (既存通常攻撃 × 通常攻撃強化倍率) × 連撃ダメ強化 × 連撃回数期待値
       const comboDamage = enhancedBasicAttack * (totalComboBoost / 100) * totalComboExpectedCount;
+      totalComboDamage = comboDamage;
       
       // 連撃弾数 = 通常攻撃弾数 × 連撃回数期待値
       const comboBullets = basicAttackBullets * totalComboExpectedCount;
@@ -1827,21 +1835,20 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
                                      riviaDamageIncrease + yuzuhaDamageIncrease + snakeEyesDamageIncrease + meimeiDamageIncrease;
     const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost + totalDamageReductionAddition;
     
-    // 鼓動効果を通常攻撃に適用
+    // 鼓動効果：通常攻撃と連撃にのみ作用する。
+    // 磁気・燃焼・復讐・PS追加ダメージ・PS脆弱など、他のPSには作用しない。
+    // 通常攻撃・連撃はどちらも直接ダメージ属性なので、PS集計と直接ダメージの両方に同じ増分を加える。
     if (heartbeatDamageIncrease > 0) {
       const heartbeatCoeff = (buffs.damageIncrease + 100 + totalDamageIncreaseBonus + heartbeatDamageIncrease) / 
                              (buffs.damageIncrease + 100 + totalDamageIncreaseBonus);
-      // 依存率（磁気・燃焼）の分子にも、PS側から発生した分だけ同じ鼓動係数を反映する。
-      // （従来は分母の totalPSDamage だけが鼓動で膨らみ、分子が膨らまないためにずれていた）
-      // 台帳に記録済みのPS磁気・PS燃焼の合計を使う（鼓動係数を掛ける前の値）。
-      totalMagneticDamage += ledgerSum('PS', 'magnetic') * (heartbeatCoeff - 1);
-      totalBurningDamage += ledgerSum('PS', 'burning') * (heartbeatCoeff - 1);
-      totalPSDamage *= heartbeatCoeff;
-      damageLedger.forEach(e => { if (e.phase === 'PS') e.value *= heartbeatCoeff; });
+      const heartbeatBoost = (enhancedBasicAttack + totalComboDamage) * (heartbeatCoeff - 1);
+      totalPSDamage += heartbeatBoost;
+      totalDirectDamage += heartbeatBoost;
+      // 台帳：鼓動が掛かった項目（通常攻撃・連撃）だけ係数を反映し、heartbeat タグを立てる
+      damageLedger.forEach(e => {
+        if (e.source === '通常攻撃' || e.source === '連撃') { e.value *= heartbeatCoeff; e.heartbeat = true; }
+      });
       damageLedgerMeta.heartbeatCoeff = heartbeatCoeff;
-      // 通常攻撃のみに鼓動効果を適用（通常攻撃強化済みのenhancedBasicAttackに適用）
-      const heartbeatEnhancedBasicAttack = enhancedBasicAttack * heartbeatCoeff;
-      totalDirectDamage = totalDirectDamage - enhancedBasicAttack + heartbeatEnhancedBasicAttack;
     }
     
     if (totalDamageIncreaseBonus > 0) {
@@ -1943,19 +1950,21 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
     // }
 
     // 追撃１発の火力重み
-    // 追撃火力：ASとAS付随のダメージのうち、直接ダメージのみ（脆弱含む、磁気・燃焼除外）
+    // 追撃火力：ASとAS付随のダメージのうち、直接ダメージ + AS属性の脆弱（磁気・燃焼除外）
+    // totalASDirectDamage は脆弱を含まないので、totalASVulnerableDamage を足しても二重計上にならない
     const rushRatio = totalASDirectBullets > 0 ? 
-      ((totalASDirectDamage + totalVulnerableDamage) / (totalASDamage + passiveDamage)) / totalASDirectBullets : 
+      ((totalASDirectDamage + totalASVulnerableDamage) / (totalASDamage + passiveDamage)) / totalASDirectBullets : 
       0;
     
     // 直接攻撃１発の平均ダメージ = (全直接ダメージ + 脆弱ダメージ) / 直接ダメージ弾数期待値
+    // （PS脆弱は totalDirectDamage 側、AS脆弱は totalASVulnerableDamage 側にあり、互いに重複しない）
     const directDamagePerBullet = totalDirectBullets > 0 ?
-      (totalDirectDamage + totalVulnerableDamage) / totalDirectBullets :
+      (totalDirectDamage + totalASVulnerableDamage) / totalDirectBullets :
       0;
     
     // 直接攻撃１発の火力重み = (直接ダメージ総計 / 総火力) / 直接弾数
     const directDamageRatio = totalDirectBullets > 0 ?
-      ((totalDirectDamage + totalVulnerableDamage) / (totalASDamage + passiveDamage)) / totalDirectBullets :
+      ((totalDirectDamage + totalASVulnerableDamage) / (totalASDamage + passiveDamage)) / totalDirectBullets :
       0;
     
     // 追撃依存率 = 追撃総ダメージ / (追撃総ダメージ + パッシブダメージ)
@@ -1980,6 +1989,8 @@ const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === 
       damageReductionCoeff,
       totalASDamage,
       passiveDamage,
+      asVulnerableDamage: totalASVulnerableDamage,
+      psVulnerableDamage: totalPSVulnerableDamage,
       damageLedger: summarizeDamageLedger(damageLedger, damageLedgerMeta),
       ironWallCorrection,
       debuffDurabilityCorrection,
