@@ -205,6 +205,256 @@
       lv1: 0, lv2: 0, lv3: 0, lv4: 0
     });
 
+    // ===== ダメージ台帳ビュー =====
+    // calcEngine.js が返す calculations.damageLedger を表示する。
+    // 台帳の各項目は「英雄 / 集計先(AS・PS) / 種類(直接・磁気・燃焼・脆弱) / 由来(通常攻撃・英雄・タイタン・覚醒)」のタグ付き。
+    const LEDGER_PHASES = {
+      AS: { label: 'AS', desc: '追撃総ダメージ', color: '#fb923c' },
+      PS: { label: 'PS', desc: 'パッシブダメージ', color: '#38bdf8' }
+    };
+    const LEDGER_KINDS = {
+      direct: { label: '直接', color: '#e2e8f0' },
+      magnetic: { label: '磁気', color: '#60a5fa' },
+      burning: { label: '燃焼', color: '#f87171' },
+      vulnerable: { label: '脆弱', color: '#c084fc' }
+    };
+    const LEDGER_ORIGINS = {
+      base: { label: '通常攻撃', color: '#94a3b8' },
+      hero: { label: '英雄', color: '#a3e635' },
+      titan: { label: 'タイタン', color: '#facc15' },
+      awakening: { label: '覚醒', color: '#f472b6' }
+    };
+    const LEDGER_HEARTBEAT_COLOR = '#2dd4bf';
+    const LEDGER_COMMON = '共通';   // 通常攻撃など、英雄に属さない項目（engine側の byHero のキーと同じ）
+
+    const ledgerFmt = (v) => (Math.abs(v) < 10 ? v.toFixed(2) : v.toFixed(1));
+    const ledgerPct = (r) => (r * 100).toFixed(1) + '%';
+    const ledgerTag = (map, key) => map[key] || { label: String(key), color: '#94a3b8', desc: '' };
+
+    const LedgerBadge = ({ color, title, children }) => (
+      <span title={title} style={{
+        display: 'inline-block', padding: '0 0.4rem', marginRight: '0.25rem', borderRadius: '999px',
+        border: `1px solid ${color}`, background: `${color}22`, color: color,
+        fontSize: '0.65rem', lineHeight: '1.1rem', whiteSpace: 'nowrap'
+      }}>{children}</span>
+    );
+
+    const LedgerChips = ({ label, options, value, onChange }) => (
+      <div style={{ display: 'flex', alignItems: 'center', flexWrap: 'wrap', gap: '0.25rem', marginBottom: '0.3rem' }}>
+        <span style={{ fontSize: '0.7rem', color: '#94a3b8', minWidth: '3.2rem' }}>{label}</span>
+        {options.map(o => {
+          const active = value === o.value;
+          return (
+            <div key={o.value} role="button" tabIndex={0}
+              onClick={() => onChange(o.value)}
+              onKeyDown={(ev) => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); onChange(o.value); } }}
+              style={{
+                padding: '0.1rem 0.5rem', borderRadius: '999px', fontSize: '0.7rem', cursor: 'pointer', userSelect: 'none',
+                border: `1px solid ${active ? '#c084fc' : 'rgba(255,255,255,0.15)'}`,
+                background: active ? 'rgba(192,132,252,0.25)' : 'transparent',
+                color: active ? '#e9d5ff' : '#94a3b8'
+              }}>{o.label}</div>
+          );
+        })}
+      </div>
+    );
+
+    const LedgerStackBar = ({ title, segments, total }) => (
+      <div style={{ marginBottom: '0.5rem' }}>
+        <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.15rem' }}>{title}</div>
+        <div style={{ display: 'flex', height: '10px', borderRadius: '999px', overflow: 'hidden', background: 'rgba(148,163,184,0.2)' }}>
+          {segments.filter(s => s.value > 0).map(s => (
+            <div key={s.label} title={`${s.label} ${ledgerFmt(s.value)}`}
+              style={{ width: `${total > 0 ? (s.value / total) * 100 : 0}%`, background: s.color }} />
+          ))}
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.1rem 0.75rem', marginTop: '0.2rem', fontSize: '0.7rem', color: '#cbd5e1' }}>
+          {segments.map(s => (
+            <span key={s.label}>
+              <span style={{ display: 'inline-block', width: '0.5rem', height: '0.5rem', borderRadius: '50%', background: s.color, marginRight: '0.25rem' }} />
+              {s.label} {ledgerFmt(s.value)}（{total > 0 ? ledgerPct(s.value / total) : '0.0%'}）
+            </span>
+          ))}
+        </div>
+      </div>
+    );
+
+    function DamageLedgerView({ ledger, heroNames, titanEnabled, awakeningEnabled }) {
+      const [open, setOpen] = useState(true);
+      const [view, setView] = useState('hero');        // 'hero'(英雄別) | 'items'(項目一覧)
+      const [fPhase, setFPhase] = useState('all');
+      const [fKind, setFKind] = useState('all');
+      const [fHero, setFHero] = useState('all');
+      const [sortMode, setSortMode] = useState('desc'); // 'desc'(ダメージ大きい順) | 'calc'(計算順)
+
+      if (!ledger || !Array.isArray(ledger.entries)) return null;
+
+      const { entries, total, byPhase, byKind, byOrigin, byHero, meta } = ledger;
+      const coeff = meta && meta.heartbeatCoeff;
+      const heartbeatOn = !!coeff && coeff !== 1;
+
+      // 英雄の並び：編成順 → それ以外（共通など）
+      const members = (heroNames || []).filter((n, i, arr) => n && n !== '外す' && n !== '未実装' && arr.indexOf(n) === i);
+      const heroKeys = [...members, ...Object.keys(byHero).filter(k => !members.includes(k))];
+      const effHero = (fHero !== 'all' && heroKeys.includes(fHero)) ? fHero : 'all';
+
+      const slotLabel = (slot) => { const i = slotNames.indexOf(slot); return i >= 0 ? slotDisplayNames[i] : slot; };
+
+      const filtered = entries.map((e, i) => ({ ...e, _i: i })).filter(e =>
+        (fPhase === 'all' || e.phase === fPhase) &&
+        (fKind === 'all' || e.kind === fKind) &&
+        (effHero === 'all' || (e.hero || LEDGER_COMMON) === effHero));
+      const rows = sortMode === 'desc' ? [...filtered].sort((a, b) => b.value - a.value) : filtered;
+      const filteredTotal = filtered.reduce((s, e) => s + e.value, 0);
+      const maxValue = rows.reduce((m, e) => Math.max(m, e.value), 0);
+
+      const cols = [
+        { key: 'AS', label: 'AS', color: LEDGER_PHASES.AS.color, get: (h) => h.AS },
+        { key: 'PS', label: 'PS', color: LEDGER_PHASES.PS.color, get: (h) => h.PS },
+        { key: 'direct', label: '直接', color: LEDGER_KINDS.direct.color, get: (h) => h.direct },
+        { key: 'magnetic', label: '磁気', color: LEDGER_KINDS.magnetic.color, get: (h) => h.magnetic },
+        { key: 'burning', label: '燃焼', color: LEDGER_KINDS.burning.color, get: (h) => h.burning },
+        { key: 'vulnerable', label: '脆弱', color: LEDGER_KINDS.vulnerable.color, get: (h) => h.vulnerable }
+      ];
+      const zeroHero = { total: 0, AS: 0, PS: 0, direct: 0, magnetic: 0, burning: 0, vulnerable: 0 };
+      const totalRow = { total, AS: byPhase.AS, PS: byPhase.PS, direct: byKind.direct, magnetic: byKind.magnetic, burning: byKind.burning, vulnerable: byKind.vulnerable };
+      const th = { padding: '0.25rem 0.4rem', textAlign: 'right', fontWeight: 600, whiteSpace: 'nowrap', borderBottom: '1px solid rgba(255,255,255,0.15)' };
+      const td = { padding: '0.25rem 0.4rem', textAlign: 'right', whiteSpace: 'nowrap' };
+      const cell = (v) => (v > 0 ? ledgerFmt(v) : <span style={{ color: '#475569' }}>–</span>);
+
+      return (
+        <div style={{ marginTop: '0.75rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', overflow: 'hidden' }}>
+          <div onClick={() => setOpen(!open)} style={{ padding: '0.4rem 0.75rem', cursor: 'pointer', background: 'rgba(255,255,255,0.05)', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#c084fc' }}>ダメージ台帳</span>
+            <span className={`collapse-icon ${!open ? 'collapsed' : ''}`} style={{ fontSize: '0.875rem' }}>▼</span>
+          </div>
+          {open && (
+            <div style={{ padding: '0.75rem' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline' }}>
+                <span style={{ fontSize: '0.75rem', color: '#94a3b8' }}>合計ダメージ（AS＋PS）</span>
+                <span style={{ fontSize: '1.1rem', fontWeight: 700, color: '#f8fafc' }}>{ledgerFmt(total)}%</span>
+              </div>
+              <div style={{ fontSize: '0.68rem', color: '#94a3b8', marginBottom: '0.6rem' }}>
+                タイタン{titanEnabled ? 'あり' : 'なし'}・覚醒{awakeningEnabled ? 'あり' : 'なし'}の状態（上の英雄火力と同じ条件）
+              </div>
+
+              <LedgerStackBar title="集計先" total={total} segments={[
+                { label: 'AS（追撃総ダメージ）', value: byPhase.AS, color: LEDGER_PHASES.AS.color },
+                { label: 'PS（パッシブ）', value: byPhase.PS, color: LEDGER_PHASES.PS.color }
+              ]} />
+              <LedgerStackBar title="種類" total={total} segments={
+                Object.keys(LEDGER_KINDS).map(k => ({ label: LEDGER_KINDS[k].label, value: byKind[k] || 0, color: LEDGER_KINDS[k].color }))
+              } />
+              <LedgerStackBar title="由来" total={total} segments={
+                Object.keys(LEDGER_ORIGINS).map(k => ({ label: LEDGER_ORIGINS[k].label, value: byOrigin[k] || 0, color: LEDGER_ORIGINS[k].color }))
+              } />
+
+              <div style={{ marginTop: '0.6rem' }}>
+                <LedgerChips label="表示" value={view} onChange={setView} options={[
+                  { value: 'hero', label: '英雄別' }, { value: 'items', label: '項目一覧' }
+                ]} />
+              </div>
+
+              {view === 'hero' ? (
+                <div>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: '0.7rem', color: '#e2e8f0' }}>
+                      <thead>
+                        <tr>
+                          <th style={{ ...th, textAlign: 'left', color: '#94a3b8' }}>英雄</th>
+                          <th style={{ ...th, color: '#94a3b8' }}>合計</th>
+                          <th style={{ ...th, color: '#94a3b8' }}>割合</th>
+                          {cols.map(c => <th key={c.key} style={{ ...th, color: c.color }}>{c.label}</th>)}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {heroKeys.map(name => {
+                          const h = byHero[name] || zeroHero;
+                          return (
+                            <tr key={name} title="クリックで項目一覧に絞り込み"
+                              onClick={() => { setFHero(name); setFPhase('all'); setFKind('all'); setView('items'); }}
+                              style={{ cursor: 'pointer', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                              <td style={{ ...td, textAlign: 'left', color: '#c084fc', fontWeight: 600 }}>{name}</td>
+                              <td style={{ ...td, fontWeight: 600 }}>{cell(h.total)}</td>
+                              <td style={{ ...td, color: '#94a3b8' }}>{h.total > 0 && total > 0 ? ledgerPct(h.total / total) : <span style={{ color: '#475569' }}>–</span>}</td>
+                              {cols.map(c => <td key={c.key} style={td}>{cell(c.get(h))}</td>)}
+                            </tr>
+                          );
+                        })}
+                        <tr style={{ borderTop: '1px solid rgba(255,255,255,0.2)', fontWeight: 700 }}>
+                          <td style={{ ...td, textAlign: 'left' }}>合計</td>
+                          <td style={td}>{ledgerFmt(totalRow.total)}</td>
+                          <td style={{ ...td, color: '#94a3b8' }}>100.0%</td>
+                          {cols.map(c => <td key={c.key} style={td}>{cell(c.get(totalRow))}</td>)}
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                  <div style={{ fontSize: '0.68rem', color: '#64748b', marginTop: '0.3rem' }}>行をタップすると、その英雄の項目一覧を表示します。</div>
+                </div>
+              ) : (
+                <div>
+                  <LedgerChips label="集計先" value={fPhase} onChange={setFPhase} options={[
+                    { value: 'all', label: 'すべて' }, { value: 'AS', label: 'AS' }, { value: 'PS', label: 'PS' }
+                  ]} />
+                  <LedgerChips label="種類" value={fKind} onChange={setFKind} options={[
+                    { value: 'all', label: 'すべて' },
+                    ...Object.keys(LEDGER_KINDS).map(k => ({ value: k, label: LEDGER_KINDS[k].label }))
+                  ]} />
+                  <LedgerChips label="英雄" value={effHero} onChange={setFHero} options={[
+                    { value: 'all', label: 'すべて' }, ...heroKeys.map(n => ({ value: n, label: n }))
+                  ]} />
+                  <LedgerChips label="並び" value={sortMode} onChange={setSortMode} options={[
+                    { value: 'desc', label: '大きい順' }, { value: 'calc', label: '計算順' }
+                  ]} />
+                  <div style={{ maxHeight: '22rem', overflowY: 'auto', border: '1px solid rgba(255,255,255,0.08)', borderRadius: '0.375rem' }}>
+                    {rows.length === 0 && (
+                      <div style={{ padding: '0.75rem', fontSize: '0.75rem', color: '#94a3b8', textAlign: 'center' }}>該当する項目がありません</div>
+                    )}
+                    {rows.map(e => {
+                      const ph = ledgerTag(LEDGER_PHASES, e.phase), kd = ledgerTag(LEDGER_KINDS, e.kind), og = ledgerTag(LEDGER_ORIGINS, e.origin);
+                      return (
+                        <div key={e._i} style={{ padding: '0.35rem 0.5rem', borderBottom: '1px solid rgba(255,255,255,0.06)' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', gap: '0.5rem' }}>
+                            <div style={{ fontSize: '0.75rem', color: '#e2e8f0', minWidth: 0 }}>
+                              <span style={{ color: '#c084fc', fontWeight: 600, marginRight: '0.4rem' }}>{e.hero || LEDGER_COMMON}</span>
+                              {e.source}{e.slot ? `（${slotLabel(e.slot)}）` : ''}
+                            </div>
+                            <div style={{ fontSize: '0.8rem', fontWeight: 600, color: '#f8fafc', whiteSpace: 'nowrap' }}>
+                              {ledgerFmt(e.value)} <span style={{ fontSize: '0.65rem', color: '#94a3b8', fontWeight: 400 }}>{ledgerPct(e.share)}</span>
+                            </div>
+                          </div>
+                          <div style={{ marginTop: '0.15rem' }}>
+                            <LedgerBadge color={ph.color} title={ph.desc}>{ph.label}</LedgerBadge>
+                            <LedgerBadge color={kd.color}>{kd.label}</LedgerBadge>
+                            <LedgerBadge color={og.color}>{og.label}</LedgerBadge>
+                            {e.heartbeat && <LedgerBadge color={LEDGER_HEARTBEAT_COLOR} title="鼓動の係数が反映済み（通常攻撃・連撃のみ）">鼓動</LedgerBadge>}
+                          </div>
+                          <div style={{ height: '3px', marginTop: '0.25rem', background: 'rgba(148,163,184,0.15)', borderRadius: '999px' }}>
+                            <div style={{ height: '100%', width: `${maxValue > 0 ? (e.value / maxValue) * 100 : 0}%`, background: ph.color, borderRadius: '999px' }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                  <div style={{ fontSize: '0.7rem', color: '#cbd5e1', marginTop: '0.3rem' }}>
+                    表示中 {rows.length}件 ／ 合計 {ledgerFmt(filteredTotal)}%（全体の {total > 0 ? ledgerPct(filteredTotal / total) : '0.0%'}）
+                  </div>
+                </div>
+              )}
+
+              <div style={{ marginTop: '0.6rem', fontSize: '0.68rem', color: '#94a3b8', lineHeight: 1.5 }}>
+                <div>AS＝追撃総ダメージ、PS＝パッシブダメージ。集計先は実際に加算された側で表示します（例：アカネ・フェルムのPS磁気はAS側）。AS＋PSの合計が英雄火力の計算元です。</div>
+                {heartbeatOn && (
+                  <div>鼓動（係数×{coeff.toFixed(4)}）は通常攻撃と連撃にのみ反映されます。「鼓動」タグ付きの値は反映後の数値です。</div>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
+      );
+    }
+
     function GameCalculator() {
       // デフォルト値（「デフォルト設定を読み込む」で復元される初期状態）
       const DEFAULT_BUFFS = {
@@ -1539,7 +1789,7 @@
                     <div 
                       style={{ 
                         padding: expandedTabs.heroCalcDetail ? '0.75rem' : 0,
-                        maxHeight: expandedTabs.heroCalcDetail ? '1000px' : '0',
+                        maxHeight: expandedTabs.heroCalcDetail ? '3000px' : '0',
                         opacity: expandedTabs.heroCalcDetail ? 1 : 0,
                         overflow: 'hidden',
                         transition: 'all 0.3s ease'
@@ -1595,6 +1845,14 @@
                           <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.burningDependencyRatio)}</div>
                         </div>
                       </div>
+
+                      {/* ダメージ台帳（各項目に 英雄 / AS・PS / 直接・磁気・燃焼・脆弱 / 由来 のタグ付き） */}
+                      <DamageLedgerView
+                        ledger={calculations.damageLedger}
+                        heroNames={heroes.map(h => h.name)}
+                        titanEnabled={titanEnabled}
+                        awakeningEnabled={awakeningEnabled}
+                      />
                     </div>
                   </div>
                 </div>

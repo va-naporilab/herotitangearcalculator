@@ -16,8 +16,8 @@
 //   従来の `calculations` と同一のオブジェクト（＋下記のダメージ台帳）
 //
 // 【ダメージ台帳 damageLedger（追加）】
-//   calculations.damageLedger            … タイタン反映後（withTitan）
-//   calculations.damageLedgerWithoutTitan … タイタン無し
+//   calculations.damageLedger            … 画面の設定（titanEnabled）どおりの状態。英雄火力の表示と同じ条件
+//   calculations.damageLedgerWithoutTitan … タイタン無し（常にタイタン効果を除いた状態）
 //   最終集計（追撃総ダメージ=AS / パッシブダメージ=PS）に入る全項目に、由来のタグを付けた記録。
 //     entries[] : { hero, heroIndex, phase, kind, origin, source, slot, value, heartbeat, share }
 //       hero   : 英雄名（通常攻撃など英雄に属さないものは null）
