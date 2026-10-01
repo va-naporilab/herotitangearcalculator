@@ -1,0 +1,1835 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="icon" href="NAPOfavicon.png" type="image/png">
+
+  <title>英雄タイタン強さ評価ツール v2.0 Phase 3</title>
+  <script src="heroData.js"></script>
+  <script src="constants.js"></script>
+  <script src="calcEngine.js"></script>
+  <script crossorigin src="https://unpkg.com/react@18/umd/react.production.min.js"></script>
+  <script crossorigin src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js"></script>
+  <script src="https://unpkg.com/@babel/standalone@7.29.0/babel.min.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="style.css">
+  <style>
+    /* 覚醒スキルランク スライダー：0〜現在ランクの区間を着色 */
+    .awakening-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 22px;
+      background: transparent;
+      cursor: pointer;
+      --fill: 0%;
+    }
+    .awakening-slider::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #facc15 0%, #f59e0b var(--fill), rgba(148,163,184,0.25) var(--fill), rgba(148,163,184,0.25) 100%);
+    }
+    .awakening-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      margin-top: -5px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 4px rgba(245,158,11,0.6);
+    }
+    .awakening-slider::-moz-range-track {
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(148,163,184,0.25);
+    }
+    .awakening-slider::-moz-range-progress {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #facc15, #f59e0b);
+    }
+    .awakening-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 4px rgba(245,158,11,0.6);
+    }
+    /* 覚醒非対応の英雄：名前と注記を横並び */
+    .awakening-section-inline {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .awakening-section-inline .awakening-hero-name,
+    .awakening-section-inline .awakening-not-supported {
+      margin: 0;
+    }
+    .awakening-section-inline .awakening-not-supported {
+      font-size: 0.75rem;
+    }
+  </style>
+</head>
+<body>
+  <div id="root"></div>
+
+  <script type="text/babel">
+    const { useState, useMemo } = React;
+
+    // アイコンコンポーネント
+    const ShieldIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"></path>
+      </svg>
+    );
+
+    const SwordsIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M14.5 17.5 3 6V3h3l11.5 11.5M13 19l6-6M16 16l4 4M19 21l2-2"></path>
+      </svg>
+    );
+
+    const UsersIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2M9 11a4 4 0 1 0 0-8 4 4 0 0 0 0 8zM22 21v-2a4 4 0 0 0-3-3.87M16 3.13a4 4 0 0 1 0 7.75"></path>
+      </svg>
+    );
+
+    const SettingsIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="3"></circle>
+        <path d="M12 1v6m0 6v6M5.6 5.6l4.2 4.2m4.2 4.2 4.2 4.2M1 12h6m6 0h6M5.6 18.4l4.2-4.2m4.2-4.2 4.2-4.2"></path>
+      </svg>
+    );
+
+    const CalculatorIcon = () => (
+      <svg className="icon icon-large" viewBox="0 0 24 24">
+        <rect x="4" y="2" width="16" height="20" rx="2"></rect>
+        <line x1="8" y1="6" x2="16" y2="6"></line>
+        <line x1="16" y1="14" x2="16" y2="18"></line>
+        <line x1="8" y1="14" x2="8" y2="18"></line>
+        <line x1="12" y1="14" x2="12" y2="18"></line>
+      </svg>
+    );
+
+    const AlertIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
+        <line x1="12" y1="9" x2="12" y2="13"></line>
+        <line x1="12" y1="17" x2="12.01" y2="17"></line>
+      </svg>
+    );
+
+    const AwakeningIcon = () => (
+      <svg className="icon" viewBox="0 0 24 24">
+        <path d="M12 2l1.8 5.2L19 9l-5.2 1.8L12 16l-1.8-5.2L5 9l5.2-1.8z"></path>
+        <path d="M19 15l0.8 2.2L22 18l-2.2 0.8L19 21l-0.8-2.2L16 18l2.2-0.8z"></path>
+      </svg>
+    );
+
+    // タイタン装備アイコン
+    const RifleIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M6 8h8M6 12h8M6 16h8M14 4h3a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1h-3M2 8h2M2 12h2M2 16h2"></path>
+        <rect x="14" y="8" width="6" height="4" rx="1"></rect>
+      </svg>
+    );
+
+    const ArmorIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M12 2L4 6v6c0 5.55 3.84 10.74 8 12 4.16-1.26 8-6.45 8-12V6l-8-4z"></path>
+        <path d="M12 8v8M8 10l4 2 4-2"></path>
+      </svg>
+    );
+
+    const VisionIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <circle cx="12" cy="12" r="10"></circle>
+        <circle cx="12" cy="12" r="6"></circle>
+        <circle cx="12" cy="12" r="2"></circle>
+        <path d="M2 12h3M19 12h3M12 2v3M12 19v3"></path>
+      </svg>
+    );
+
+    const HeadIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M3 18v-6a9 9 0 0 1 18 0v6"></path>
+        <path d="M21 19a2 2 0 0 1-2 2h-1a2 2 0 0 1-2-2v-3a2 2 0 0 1 2-2h3zM3 19a2 2 0 0 0 2 2h1a2 2 0 0 0 2-2v-3a2 2 0 0 0-2-2H3z"></path>
+      </svg>
+    );
+
+    const HandyIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M18 11V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v0M14 10V4a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v2M10 10.5V6a2 2 0 0 0-2-2v0a2 2 0 0 0-2 2v8"></path>
+        <path d="M18 8a2 2 0 1 1 4 0v6a8 8 0 0 1-8 8h-2c-2.8 0-4.5-.86-5.99-2.34l-3.6-3.6a2 2 0 0 1 2.83-2.82L7 15"></path>
+      </svg>
+    );
+
+    const BootsIcon = () => (
+      <svg className="titan-slot-icon" viewBox="0 0 24 24">
+        <path d="M6 3v6l-3 4v5a3 3 0 0 0 3 3h2"></path>
+        <path d="M14 3v6l3 4v5a3 3 0 0 1-3 3h-2"></path>
+        <path d="M6 9h8M6 15h8"></path>
+      </svg>
+    );
+
+    const slotIcons = {
+      rifle: RifleIcon,
+      armor: ArmorIcon,
+      vision: VisionIcon,
+      head: HeadIcon,
+      handy: HandyIcon,
+      boots: BootsIcon
+    };
+
+
+    // ===== 覚醒システム =====
+    // 覚醒に対応しているかどうかは heroData.js 側の `awakeningCapable: true` で判定する。
+    const isAwakeningCapableHero = (name) => !!(heroData[name] && heroData[name].awakeningCapable);
+
+    // 覚醒スキルのスロット数（4つ固定）とレベル範囲（0～10）
+    const AWAKENING_SKILL_COUNT = 4;
+    // 【用語】覚醒スキルの強化段階は「ランク」と呼ぶ（0～10）。旧称「レベル」から統一。
+    const AWAKENING_SKILL_MAX_RANK = 10;
+    const AWAKENING_SKILL_LABELS = ['覚醒スキル1', '覚醒スキル2', '覚醒スキル3', '覚醒スキル4'];
+
+    // 英雄1体分の覚醒初期状態（スキル4つ、すべてレベル0）
+    const getDefaultAwakening = () => ({
+      lv1: 0, lv2: 0, lv3: 0, lv4: 0
+    });
+
+    function GameCalculator() {
+      // デフォルト値（「デフォルト設定を読み込む」で復元される初期状態）
+      const DEFAULT_BUFFS = {
+        troops: 220,
+        soldierLv: 103,
+        life: 3500,
+        attack: 3500,
+        damageIncrease: 500,
+        damageReduction: 500,
+        defense: 160,
+        typeAdvantage: 150,
+        baseShield: 33,
+        silenceCount: 0,
+        enemyIronWall: '専用5',
+        powerDiff: 1.0,
+        enemyRushRatio: 0.15,
+        enemyPowerDurabilityRatio: 0.3,
+        myPowerDurabilityRatio: 0.3,
+        speedCondition: '同攻速',
+        directDamageRatio: 0.1,
+        enemyASRatio: 0.5,
+        enemyMagneticBurningRatio: 0.28,
+        enemyAbnormalDamageReduction: 0,
+        powerDivergenceCoef: 1.4
+      };
+      const DEFAULT_COMPATIBILITY = '同兵種';
+      const DEFAULT_TITAN_ENABLED = true;
+      const DEFAULT_HEROES = [
+        { name: 'フランカ', exclusiveLv: 5 },
+        { name: 'ミヤ', exclusiveLv: 5 },
+        { name: 'ルネ', exclusiveLv: 5 }
+      ];
+      const DEFAULT_EXCLUSIVE_LV = 5;
+
+      const [buffs, setBuffs] = useState({ ...DEFAULT_BUFFS });
+
+      const [compatibility, setCompatibility] = useState(DEFAULT_COMPATIBILITY);
+      const [titanEnabled, setTitanEnabled] = useState(DEFAULT_TITAN_ENABLED);
+      // 覚醒ON/OFF。OFF＝覚醒実装前の状態＝全スキルランク0と同義（スライダー値はそのまま保持し、計算にのみ反映しない）
+      const [awakeningEnabled, setAwakeningEnabled] = useState(true);
+      
+      // ラウンド重み係数
+      const [powerRoundWeights, setPowerRoundWeights] = useState(getDefaultPowerRoundWeights('専用5'));
+      const [durabilityRoundWeights, setDurabilityRoundWeights] = useState(defaultDurabilityRoundWeights);
+      
+      // 敵の火力/耐久比に応じて火力ラウンド重み係数を調整する関数
+      const adjustPowerWeightsByRatio = (baseWeights, ratio) => {
+        // ratio: 0.1～0.5 (デフォルト0.3)
+        // 0.3の時はbaseWeightsそのまま
+        // 0に近づくほど [0,0,0,1] に近づく（線形補正）
+        // 1に近づくほどR4が0に近づき、他が比率維持して上昇
+        
+        if (ratio === 0.3) return baseWeights;
+        
+        const target0 = [0, 0, 0, 1]; // ratio=0のターゲット
+        
+        if (ratio < 0.3) {
+          // 0から0.3の間: 線形補間
+          const t = ratio / 0.3; // 0～1
+          return baseWeights.map((w, i) => w * t + target0[i] * (1 - t));
+        } else {
+          // 0.3から上: R4を減らし、他を比率維持して増加
+          // ratio=1でR4=0を目指す
+          const t = (ratio - 0.3) / (0.5 - 0.3); // 0～1 (0.3～0.5で正規化)
+          const clampedT = Math.max(0, Math.min(1, t));
+          
+          // R4を減らす
+          const newR4 = baseWeights[3] * (1 - clampedT);
+          
+          // R1,R2,R3の合計を求める
+          const r123Sum = baseWeights[0] + baseWeights[1] + baseWeights[2];
+          
+          // 減った分を比率維持してR1,R2,R3に分配
+          const addAmount = baseWeights[3] * clampedT;
+          const newR1 = baseWeights[0] + (baseWeights[0] / r123Sum) * addAmount;
+          const newR2 = baseWeights[1] + (baseWeights[1] / r123Sum) * addAmount;
+          const newR3 = baseWeights[2] + (baseWeights[2] / r123Sum) * addAmount;
+          
+          return [newR1, newR2, newR3, newR4];
+        }
+      };
+      
+      // 敵の鉄壁条件または火力/耐久比が変更されたら火力ラウンド重み係数を自動更新
+      React.useEffect(() => {
+        const baseWeights = getDefaultPowerRoundWeights(buffs.enemyIronWall);
+        const adjustedWeights = adjustPowerWeightsByRatio(baseWeights, buffs.enemyPowerDurabilityRatio || 0);
+        setPowerRoundWeights(adjustedWeights);
+      }, [buffs.enemyIronWall, buffs.enemyPowerDurabilityRatio]);
+      
+      // タブ折りたたみ状態
+      const [expandedTabs, setExpandedTabs] = useState({
+        buffs: false,
+        environment: false,
+        heroes: true,
+        presets: false,
+        saveData: false,
+        titanEquip: true,
+        awakening: true,
+        buffCalc: false,
+        heroCalc: true,
+        heroCalcDetail: false,
+        totalEval: false,
+        devLog: false
+      });
+      
+      // 英雄ごとのタイタン装備折りたたみ状態
+      const [expandedTitanHeroes, setExpandedTitanHeroes] = useState({
+        0: false,
+        1: false,
+        2: false
+      });
+      
+      const toggleTab = (tabName) => {
+        setExpandedTabs(prev => ({...prev, [tabName]: !prev[tabName]}));
+      };
+      
+      const toggleTitanHero = (heroIndex) => {
+        setExpandedTitanHeroes(prev => ({...prev, [heroIndex]: !prev[heroIndex]}));
+      };
+
+      const [heroes, setHeroes] = useState([...DEFAULT_HEROES]);
+
+      // 一括専用レベル設定（デフォルト: 専用5）
+      const [defaultExclusiveLv, setDefaultExclusiveLv] = useState(DEFAULT_EXCLUSIVE_LV);
+
+      const [titanEquip, setTitanEquip] = useState(
+        heroes.map(() => slotNames.map(() => ({ effect: '', level: 1 })))
+      );
+
+      // 覚醒設定（英雄ごとにスキル1～4のレベルを保持。非対応英雄は常に初期値のまま）
+      const [awakening, setAwakening] = useState(
+        heroes.map(() => getDefaultAwakening())
+      );
+      const [expandedAwakeningHeroes, setExpandedAwakeningHeroes] = useState({});
+      const toggleAwakeningHero = (heroIndex) => {
+        setExpandedAwakeningHeroes(prev => ({...prev, [heroIndex]: !prev[heroIndex]}));
+      };
+      const updateAwakening = (heroIndex, skillKey, value) => {
+        setAwakening(prev => {
+          const next = [...prev];
+          const clamped = Math.max(0, Math.min(AWAKENING_SKILL_MAX_RANK, parseInt(value) || 0));
+          next[heroIndex] = { ...next[heroIndex], [skillKey]: clamped };
+          return next;
+        });
+      };
+
+      // ===== ローカルストレージ保存機能 =====
+      const STORAGE_KEY = 'gameCalculatorSaveData';
+      const [saveSlots, setSaveSlots] = useState({});
+      const [saveMessage, setSaveMessage] = useState('');
+      const [newSlotName, setNewSlotName] = useState('');
+      const isInitialLoad = React.useRef(true);
+
+      // 現在の入力状態をまとめて取得
+      const getCurrentState = () => ({
+        buffs,
+        compatibility,
+        titanEnabled,
+        awakeningEnabled,
+        powerRoundWeights,
+        durabilityRoundWeights,
+        heroes,
+        defaultExclusiveLv,
+        titanEquip,
+        awakening
+      });
+
+      // 状態を復元
+      const applyState = (state) => {
+        if (!state) return;
+        if (state.buffs) setBuffs(state.buffs);
+        // 旧バージョンの保存データ（「同兵種・不利」）は「同兵種」として扱う
+        if (state.compatibility) {
+          setCompatibility(state.compatibility === '同兵種・不利' ? '同兵種' : state.compatibility);
+        }
+        if (typeof state.titanEnabled === 'boolean') setTitanEnabled(state.titanEnabled);
+        if (typeof state.awakeningEnabled === 'boolean') setAwakeningEnabled(state.awakeningEnabled);
+        if (state.powerRoundWeights) setPowerRoundWeights(state.powerRoundWeights);
+        if (state.durabilityRoundWeights) setDurabilityRoundWeights(state.durabilityRoundWeights);
+        if (state.heroes) setHeroes(state.heroes);
+        if (typeof state.defaultExclusiveLv === 'number') setDefaultExclusiveLv(state.defaultExclusiveLv);
+        if (state.titanEquip) setTitanEquip(state.titanEquip);
+        // 古い保存データ（覚醒実装前）にはawakeningが存在しないため、その場合は英雄数分の初期値で補完
+        if (state.awakening) {
+          setAwakening(state.awakening);
+        } else if (state.heroes) {
+          setAwakening(state.heroes.map(() => getDefaultAwakening()));
+        }
+      };
+
+      // 起動時：自動保存された「最後の状態」を読み込み、保存スロット一覧も読み込む
+      React.useEffect(() => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.autoSave) {
+              applyState(parsed.autoSave);
+            }
+            if (parsed.slots) {
+              setSaveSlots(parsed.slots);
+            }
+          }
+        } catch (e) {
+          console.error('ローカルストレージの読み込みに失敗しました', e);
+        } finally {
+          isInitialLoad.current = false;
+        }
+      }, []);
+
+      // 入力値が変わるたびに自動保存（「最後の状態」として保持）
+      React.useEffect(() => {
+        if (isInitialLoad.current) return;
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          parsed.autoSave = getCurrentState();
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+        } catch (e) {
+          console.error('自動保存に失敗しました', e);
+        }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+      }, [buffs, compatibility, titanEnabled, awakeningEnabled, powerRoundWeights, durabilityRoundWeights, heroes, defaultExclusiveLv, titanEquip, awakening]);
+
+      // 名前付きスロットへの保存（上書き時は確認）
+      const saveToSlot = (slotName, forceOverwrite = false) => {
+        if (!slotName) return;
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          parsed.slots = parsed.slots || {};
+
+          if (!forceOverwrite && parsed.slots[slotName]) {
+            const confirmed = window.confirm(`「${slotName}」は既に存在します。上書き保存しますか？`);
+            if (!confirmed) return;
+          }
+
+          parsed.slots[slotName] = {
+            data: getCurrentState(),
+            savedAt: new Date().toLocaleString('ja-JP'),
+            heroStrength: calculations?.heroStrength_display ?? null,
+            totalStrength: calculations?.totalStrength ?? null
+          };
+          localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+          setSaveSlots(parsed.slots);
+          setSaveMessage(forceOverwrite ? `「${slotName}」を上書き保存しました` : `「${slotName}」に保存しました`);
+          setTimeout(() => setSaveMessage(''), 2500);
+        } catch (e) {
+          console.error('保存に失敗しました', e);
+          setSaveMessage('保存に失敗しました');
+          setTimeout(() => setSaveMessage(''), 2500);
+        }
+      };
+
+      // 名前付きスロットの読み込み
+      const loadFromSlot = (slotName) => {
+        const slot = saveSlots[slotName];
+        if (!slot) return;
+        applyState(slot.data);
+        setSaveMessage(`「${slotName}」を読み込みました`);
+        setTimeout(() => setSaveMessage(''), 2500);
+      };
+
+      // 名前付きスロットの削除
+      const deleteSlot = (slotName) => {
+        try {
+          const raw = localStorage.getItem(STORAGE_KEY);
+          const parsed = raw ? JSON.parse(raw) : {};
+          if (parsed.slots) {
+            delete parsed.slots[slotName];
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(parsed));
+            setSaveSlots(parsed.slots);
+          }
+        } catch (e) {
+          console.error('削除に失敗しました', e);
+        }
+      };
+
+      // デフォルト設定を読み込む（全入力値を初期値に戻す）
+      const loadDefaultSettings = () => {
+        setBuffs({ ...DEFAULT_BUFFS });
+        setCompatibility(DEFAULT_COMPATIBILITY);
+        setTitanEnabled(DEFAULT_TITAN_ENABLED);
+        setAwakeningEnabled(true);
+        setPowerRoundWeights(getDefaultPowerRoundWeights(DEFAULT_BUFFS.enemyIronWall));
+        setDurabilityRoundWeights(defaultDurabilityRoundWeights);
+        const resetHeroes = DEFAULT_HEROES.map(h => ({ ...h }));
+        setHeroes(resetHeroes);
+        setDefaultExclusiveLv(DEFAULT_EXCLUSIVE_LV);
+        setTitanEquip(resetHeroes.map(() => slotNames.map(() => ({ effect: '', level: 1 }))));
+        setAwakening(resetHeroes.map(() => getDefaultAwakening()));
+        setSaveMessage('デフォルト設定を読み込みました');
+        setTimeout(() => setSaveMessage(''), 2500);
+      };
+      // ===== ローカルストレージ保存機能ここまで =====
+
+      const numericBuffKeys = new Set([
+        'troops', 'soldierLv', 'life', 'attack', 'damageIncrease', 'damageReduction',
+        'defense', 'typeAdvantage', 'baseShield', 'silenceCount',
+        'powerDiff', 'enemyRushRatio', 'enemyPowerDurabilityRatio', 'myPowerDurabilityRatio', 'directDamageRatio', 'enemyASRatio', 'enemyMagneticBurningRatio', 'enemyAbnormalDamageReduction', 'powerDivergenceCoef'
+      ]);
+      
+      const updateBuff = (key, value) => {
+        if (numericBuffKeys.has(key)) {
+          // 空文字列は許可、数値に変換できれば数値を保存、できなければ空文字列を保存
+          if (value === '') {
+            setBuffs(prev => ({ ...prev, [key]: '' }));
+          } else {
+            const parsed = parseFloat(value);
+            setBuffs(prev => ({ ...prev, [key]: isNaN(parsed) ? '' : parsed }));
+          }
+        } else {
+          // 文字列フィールド（enemyIronWallなど）はそのまま保存
+          setBuffs(prev => ({ ...prev, [key]: value }));
+        }
+      };
+
+      // onBlur時に空文字列を0に補完
+      const handleNumericInputBlur = (key) => {
+        if (buffs[key] === '') {
+          setBuffs(prev => ({ ...prev, [key]: 0 }));
+        }
+      };
+
+      // onFocus時に0を空文字列に変換（0を削除して入力可能にする）
+      const handleNumericInputFocus = (key) => {
+        if (buffs[key] === 0) {
+          setBuffs(prev => ({ ...prev, [key]: '' }));
+        }
+      };
+
+      const selectPreset = (presetNum) => {
+        const newHeroes = presets[presetNum].map(name => ({ name, exclusiveLv: defaultExclusiveLv }));
+        setHeroes(newHeroes);
+        setTitanEquip(newHeroes.map(() => slotNames.map(() => ({ effect: '', level: 1 }))));
+        setAwakening(newHeroes.map(() => getDefaultAwakening()));
+      };
+
+      const updateHero = (index, field, value) => {
+        setHeroes(prev => {
+          const newHeroes = [...prev];
+          if (field === 'name') {
+            // 英雄名が変更された場合、一括専用レベルを適用
+            newHeroes[index] = { name: value, exclusiveLv: defaultExclusiveLv };
+          } else {
+            newHeroes[index] = { ...newHeroes[index], [field]: value };
+          }
+          return newHeroes;
+        });
+      };
+
+      const updateTitan = (heroIndex, slotIndex, field, value) => {
+        setTitanEquip(prev => {
+          const newEquip = [...prev];
+          newEquip[heroIndex] = [...newEquip[heroIndex]];
+          newEquip[heroIndex][slotIndex] = {
+            ...newEquip[heroIndex][slotIndex],
+            [field]: value
+          };
+          return newEquip;
+        });
+      };
+
+      // 計算処理
+      const calculations = useMemo(() => calculateAll({
+        buffs, compatibility, heroes, titanEquip, titanEnabled, awakeningEnabled,
+        powerRoundWeights, durabilityRoundWeights, awakening
+      }), [buffs, compatibility, heroes, titanEquip, titanEnabled, awakeningEnabled, powerRoundWeights, durabilityRoundWeights, awakening]);
+
+      return (
+        <div className="container">
+          {/* ヘッダー */}
+          <div className="header">
+            <h1>
+              <CalculatorIcon />
+              英雄タイタン強さ評価ツール
+              <span className="version-badge">v1.9.0</span>
+            </h1>
+            <p>by Napo  feat.Sonnet</p>
+          </div>
+
+          {/* 保存データ（折りたたみ可能・バフ設定の上に独立配置） */}
+          <div className="card" style={{ marginBottom: '1.5rem' }}>
+            <div className="card-header" onClick={() => toggleTab('saveData')}>
+              <h2>💾 保存データ</h2>
+              <span className={`collapse-icon ${!expandedTabs.saveData ? 'collapsed' : ''}`}>▼</span>
+            </div>
+            <div className={`card-content ${!expandedTabs.saveData ? 'hidden' : ''}`}>
+              <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginBottom: '0.75rem' }}>
+                現在の入力値（バフ・環境・英雄・装備など）は常に自動でこのブラウザに保存され、次回開いたときに復元されます。
+                さらに、名前を付けて複数の編成を保存・呼び出しできます。保存済みデータの「上書き」ボタンで、現在の入力内容を既存データに上書きできます。
+              </div>
+
+              {/* 新規保存＋デフォルト読込 */}
+              <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.75rem', flexWrap: 'wrap' }}>
+                <input
+                  type="text"
+                  value={newSlotName}
+                  onChange={(e) => setNewSlotName(e.target.value)}
+                  placeholder="保存名を入力（例：磁気編成専5）"
+                  className="form-input"
+                  style={{ flex: 1, minWidth: '160px' }}
+                />
+                <button
+                  onClick={() => {
+                    if (newSlotName.trim()) {
+                      saveToSlot(newSlotName.trim());
+                      setNewSlotName('');
+                    }
+                  }}
+                  className="btn btn-primary"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  名前を付けて保存
+                </button>
+                <button
+                  onClick={() => {
+                    if (window.confirm('すべての入力値をデフォルト設定に戻します。よろしいですか？')) {
+                      loadDefaultSettings();
+                    }
+                  }}
+                  className="btn btn-secondary"
+                  style={{ whiteSpace: 'nowrap' }}
+                >
+                  デフォルト設定を読み込む
+                </button>
+              </div>
+
+              {saveMessage && (
+                <div style={{ 
+                  marginBottom: '0.75rem', 
+                  padding: '0.5rem 0.75rem', 
+                  background: 'rgba(34, 197, 94, 0.15)', 
+                  border: '1px solid rgba(34, 197, 94, 0.4)',
+                  borderRadius: '0.375rem',
+                  color: '#86efac',
+                  fontSize: '0.8rem'
+                }}>
+                  {saveMessage}
+                </div>
+              )}
+
+              {/* 保存済みスロット一覧 */}
+              {Object.keys(saveSlots).length === 0 ? (
+                <div style={{ fontSize: '0.8rem', color: '#64748b', fontStyle: 'italic' }}>
+                  保存されたデータはまだありません
+                </div>
+              ) : (
+                <div className="space-y-2">
+                  {Object.entries(saveSlots)
+                    .sort((a, b) => (b[1].savedAt || '').localeCompare(a[1].savedAt || ''))
+                    .map(([name, slot]) => (
+                    <div 
+                      key={name} 
+                      style={{ 
+                        display: 'flex', 
+                        alignItems: 'center', 
+                        justifyContent: 'space-between',
+                        gap: '0.5rem',
+                        padding: '0.5rem 0.75rem',
+                        background: 'rgba(255,255,255,0.04)',
+                        borderRadius: '0.375rem'
+                      }}
+                    >
+                      <div style={{ minWidth: 0, flex: 1 }}>
+                        <div style={{ fontSize: '0.875rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                          {name}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                          {slot.savedAt}
+                        </div>
+                        {(slot.heroStrength != null || slot.totalStrength != null) && (
+                          <div style={{ fontSize: '0.7rem', color: '#facc15', marginTop: '0.15rem' }}>
+                            {slot.heroStrength != null && <span>英雄強さ値: {formatNumber(slot.heroStrength)}</span>}
+                            {slot.heroStrength != null && slot.totalStrength != null && <span style={{ margin: '0 0.4rem', color: '#475569' }}>|</span>}
+                            {slot.totalStrength != null && <span>編成総合強さ値: {formatNumber(slot.totalStrength)}</span>}
+                          </div>
+                        )}
+                      </div>
+                      <div style={{ display: 'flex', gap: '0.375rem', flexShrink: 0 }}>
+                        <button
+                          onClick={() => loadFromSlot(name)}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem' }}
+                        >
+                          読込
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`「${name}」を現在の入力内容で上書き保存しますか？`)) {
+                              saveToSlot(name, true);
+                            }
+                          }}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem', color: '#fde047' }}
+                        >
+                          上書き
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (window.confirm(`「${name}」を削除しますか？`)) {
+                              deleteSlot(name);
+                            }
+                          }}
+                          className="btn btn-secondary"
+                          style={{ padding: '0.35rem 0.6rem', fontSize: '0.8rem', color: '#fca5a5' }}
+                        >
+                          削除
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+
+          <div className="grid">
+            {/* 左カラム：バフ設定 */}
+            <div className="space-y-6">
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('buffs')}>
+                  <h2><ShieldIcon /> バフ設定</h2>
+                  <span className={`collapse-icon ${!expandedTabs.buffs ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.buffs ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
+                  {[
+                    { key: 'troops', label: '出撃数', type: 'input' },
+                    { key: 'soldierLv', label: '兵士Lv', type: 'soldierSelect' },
+                    { key: 'life', label: '生命 (%)' , type: 'input' },
+                    { key: 'attack', label: '攻撃 (%)' , type: 'input' },
+                    { key: 'damageIncrease', label: 'ダメ増 (%)' , type: 'input' },
+                    { key: 'damageReduction', label: 'ダメ減 (%)' , type: 'input' },
+                    { key: 'defense', label: '防御 (%)' , type: 'input' },
+                    { key: 'baseShield', label: '基礎シールド', type: 'shieldSelect' },
+                  ].map(({ key, label, type }) => (
+                    <div key={key} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <label style={{ fontSize: '0.8rem', fontWeight: 600, color: '#cbd5e1', whiteSpace: 'nowrap', width: '90px', flexShrink: 0 }}>{label}</label>
+                      {type === 'input' && (
+                        <input 
+                          type="text" 
+                          inputMode="numeric"
+                          value={buffs[key]} 
+                          onChange={(e) => updateBuff(key, e.target.value)} 
+                          onFocus={() => handleNumericInputFocus(key)}
+                          onBlur={() => handleNumericInputBlur(key)}
+                          className="form-input" 
+                          style={{ flex: 1 }} 
+                        />
+                      )}
+                      {type === 'soldierSelect' && (
+                        <select value={buffs[key]} onChange={(e) => updateBuff(key, e.target.value)} className="form-select" style={{ flex: 1 }}>
+                          {[103, 102, 101, 100, 83, 82, 81, 80].map(lv => (<option key={lv} value={lv}>Lv{lv}</option>))}
+                        </select>
+                      )}
+                      {type === 'shieldSelect' && (
+                        <select value={buffs[key]} onChange={(e) => updateBuff(key, e.target.value)} className="form-select" style={{ flex: 1 }}>
+                          {[0, 5, 18, 23, 28, 33, 40, 45].map(val => (<option key={val} value={val}>{val}</option>))}
+                        </select>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('environment')}>
+                  <h2><SwordsIcon /> 相性環境設定</h2>
+                  <span className={`collapse-icon ${!expandedTabs.environment ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.environment ? 'hidden' : ''}`}>
+                  <div className="space-y-3">
+                  <div className="form-group">
+                    <label className="form-label">兵種相性設定 (%)</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      value={buffs.typeAdvantage}
+                      onChange={(e) => updateBuff('typeAdvantage', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('typeAdvantage')}
+                      onBlur={() => handleNumericInputBlur('typeAdvantage')}
+                      className="form-input"
+                    />
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">兵種相性条件</label>
+                    <div className="compatibility-buttons">
+                      {['同兵種', '相性不利', '相性有利'].map(comp => (
+                        <button
+                          key={comp}
+                          onClick={() => setCompatibility(comp)}
+                          className={`btn ${compatibility === comp ? 'btn-primary active' : 'btn-secondary'}`}
+                        >
+                          {comp}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">攻速条件</label>
+                    <div className="compatibility-buttons">
+                      {['攻速勝ち', '同攻速', '攻速負け'].map(speed => (
+                        <button
+                          key={speed}
+                          onClick={() => updateBuff('speedCondition', speed)}
+                          className={`btn ${buffs.speedCondition === speed ? 'btn-primary active' : 'btn-secondary'}`}
+                        >
+                          {speed}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">敵から受ける沈黙の数</label>
+                    <input
+                      type="text"
+                      inputMode="numeric"
+                      min="0"
+                      max="9"
+                      value={buffs.silenceCount}
+                      onChange={(e) => updateBuff('silenceCount', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('silenceCount')}
+                      onBlur={() => handleNumericInputBlur('silenceCount')}
+                      className="form-input"
+                    />
+                  </div>
+
+                  {/* 追撃依存率と追撃火力重みを横並び */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div className="form-group">
+                      <label className="form-label" style={{ fontSize: '0.875rem' }}>
+                        敵の追撃依存率<br/>（沈黙計算用）
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        max="1"
+                        value={buffs.enemyASRatio}
+                        onChange={(e) => updateBuff('enemyASRatio', e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" style={{ fontSize: '0.875rem' }}>
+                        敵の追撃１発の火力重み<br/>（重甲計算用）
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        step="0.01"
+                        value={buffs.enemyRushRatio}
+                        onChange={(e) => updateBuff('enemyRushRatio', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('enemyRushRatio')}
+                        onBlur={() => handleNumericInputBlur('enemyRushRatio')}
+                        className="form-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 敵の磁気燃焼依存率と敵の異常ダメージ軽減を横並び */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div className="form-group">
+                      <label className="form-label" style={{ fontSize: '0.875rem' }}>
+                        敵の磁気燃焼依存率
+                      </label>
+                      <input
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        max="1"
+                        value={buffs.enemyMagneticBurningRatio}
+                        onChange={(e) => updateBuff('enemyMagneticBurningRatio', e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" style={{ fontSize: '0.875rem' }}>
+                        敵の異常ダメージ軽減
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        step="1"
+                        value={buffs.enemyAbnormalDamageReduction}
+                        onChange={(e) => updateBuff('enemyAbnormalDamageReduction', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('enemyAbnormalDamageReduction')}
+                        onBlur={() => handleNumericInputBlur('enemyAbnormalDamageReduction')}
+                        className="form-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="form-group">
+                    <label className="form-label">敵の直接攻撃１発の火力重み</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      step="0.01"
+                      value={buffs.directDamageRatio}
+                      onChange={(e) => updateBuff('directDamageRatio', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('directDamageRatio')}
+                      onBlur={() => handleNumericInputBlur('directDamageRatio')}
+                      className="form-input"
+                    />
+                  </div>
+
+                  {/* 2つずつ横並び */}
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div className="form-group">
+                      <label className="form-label">敵の鉄壁条件</label>
+                      <select
+                        value={buffs.enemyIronWall}
+                        onChange={(e) => updateBuff('enemyIronWall', e.target.value)}
+                        className="form-select"
+                      >
+                        <option value="鉄壁無し">鉄壁無し</option>
+                        <option value="専用なし">専用なし</option>
+                        <option value="専用5">専用５</option>
+                        <option value="専用7">専用７</option>
+                        <option value="専用7＋Lv7破壊不能">専用７＋Ｌｖ７破壊不能</option>
+                      </select>
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" style={{ fontSize: '0.875rem' }}>
+                        想定戦力差<br/>（強さ値が自身の何倍）
+                      </label>
+                      <input
+                        type="number"
+                        step="0.1"
+                        min="0"
+                        value={buffs.powerDiff}
+                        onChange={(e) => updateBuff('powerDiff', e.target.value)}
+                        className="form-input"
+                      />
+                    </div>
+                  </div>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                    <div className="form-group">
+                      <label className="form-label">敵の火力／耐久比</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0.1"
+                        max="0.5"
+                        value={buffs.enemyPowerDurabilityRatio}
+                        onChange={(e) => updateBuff('enemyPowerDurabilityRatio', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('enemyPowerDurabilityRatio')}
+                        onBlur={() => handleNumericInputBlur('enemyPowerDurabilityRatio')}
+                        className="form-input"
+                      />
+                    </div>
+
+                    <div className="form-group">
+                      <label className="form-label" style={{ fontSize: '0.875rem' }}>
+                        自編成の火力／耐久比<br/>（総合評価参照）
+                      </label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        step="0.01"
+                        min="0.1"
+                        max="0.5"
+                        value={buffs.myPowerDurabilityRatio}
+                        onChange={(e) => updateBuff('myPowerDurabilityRatio', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('myPowerDurabilityRatio')}
+                        onBlur={() => handleNumericInputBlur('myPowerDurabilityRatio')}
+                        className="form-input"
+                      />
+                    </div>
+                  </div>
+
+                  {/* 予想戦闘ターン表示 */}
+                  <div className="result-box" style={{ background: 'rgba(59, 130, 246, 0.2)', marginTop: '0.5rem' }}>
+                    <div className="result-label">予想戦闘ターン</div>
+                    <div className="result-value value-blue">{formatNumber(calculations.expectedRounds)}</div>
+                  </div>
+
+                  {/* ラウンド重み係数 */}
+                  <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
+                    <div style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: '#fbbf24' }}>火力ラウンド重み係数</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+                      {['R1', 'R2', 'R3', 'R4以降'].map((label, idx) => (
+                        <div key={idx} className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>{label}</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={powerRoundWeights[idx]}
+                            onChange={(e) => {
+                              const newWeights = [...powerRoundWeights];
+                              newWeights[idx] = parseFloat(e.target.value) || 0;
+                              setPowerRoundWeights(newWeights);
+                            }}
+                            className="form-input"
+                            style={{ fontSize: '0.875rem' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div style={{ marginTop: '1rem', borderTop: '1px solid rgba(255,255,255,0.1)', paddingTop: '1rem' }}>
+                    <div style={{ marginBottom: '0.5rem', fontWeight: 'bold', color: '#86efac' }}>耐久ラウンド重み係数</div>
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: '0.5rem' }}>
+                      {['R1', 'R2', 'R3', 'R4以降'].map((label, idx) => (
+                        <div key={idx} className="form-group" style={{ marginBottom: 0 }}>
+                          <label className="form-label" style={{ fontSize: '0.75rem' }}>{label}</label>
+                          <input
+                            type="number"
+                            step="0.01"
+                            value={durabilityRoundWeights[idx]}
+                            onChange={(e) => {
+                              const newWeights = [...durabilityRoundWeights];
+                              newWeights[idx] = parseFloat(e.target.value) || 0;
+                              setDurabilityRoundWeights(newWeights);
+                            }}
+                            className="form-input"
+                            style={{ fontSize: '0.875rem' }}
+                          />
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+
+                  {/* 火力乖離係数（一番下） */}
+                  <div className="form-group" style={{ marginTop: '1rem' }}>
+                    <label className="form-label">火力乖離係数（1～1.6）</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      step="0.01"
+                      min="1"
+                      max="1.6"
+                      value={buffs.powerDivergenceCoef}
+                      onChange={(e) => updateBuff('powerDivergenceCoef', e.target.value)}
+                      onFocus={() => handleNumericInputFocus('powerDivergenceCoef')}
+                      onBlur={() => handleNumericInputBlur('powerDivergenceCoef')}
+                      className="form-input"
+                    />
+                  </div>
+                </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 中央カラム：英雄設定 */}
+            <div className="space-y-6">
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('heroes')}>
+                  <h2><UsersIcon /> 英雄設定</h2>
+                  <span className={`collapse-icon ${!expandedTabs.heroes ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                {/* 兵種不一致の警告：常時表示（タブ折りたたみに関わらず） */}
+                {calculations.typeWarning && (
+                  <div style={{
+                    background: 'rgba(220, 38, 38, 0.2)',
+                    border: '1px solid rgba(239, 68, 68, 0.5)',
+                    borderRadius: '0.375rem',
+                    padding: '0.5rem 0.75rem',
+                    marginBottom: '0.5rem',
+                    color: '#fca5a5',
+                    fontWeight: '600',
+                    fontSize: '0.875rem'
+                  }}>
+                    {calculations.typeWarning}
+                  </div>
+                )}
+                <div className={`card-content ${!expandedTabs.heroes ? 'hidden' : ''}`}>
+                
+                {/* 一括専用レベル設定 */}
+                <div style={{ marginBottom: '0.75rem', padding: '0.5rem 0.75rem', background: 'rgba(59, 130, 246, 0.1)', borderRadius: '0.375rem', border: '1px solid rgba(59, 130, 246, 0.3)', display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                  <label className="form-label" style={{ marginBottom: 0, color: '#60a5fa', whiteSpace: 'nowrap', fontSize: '0.875rem' }}>デフォルト専用レベル</label>
+                  <select
+                    value={defaultExclusiveLv}
+                    onChange={(e) => setDefaultExclusiveLv(parseInt(e.target.value))}
+                    className="form-select"
+                    style={{ maxWidth: '120px' }}
+                  >
+                    <option value={0}>専用なし</option>
+                    <option value={3}>専用３</option>
+                    <option value={5}>専用５</option>
+                    <option value={7}>専用７</option>
+                  </select>
+                </div>
+                
+                {/* プリセット選択（折りたたみ可能） */}
+                <div style={{ marginBottom: '1rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', overflow: 'hidden' }}>
+                  <div 
+                    onClick={() => toggleTab('presets')}
+                    style={{ 
+                      padding: '0.75rem 1rem', 
+                      cursor: 'pointer', 
+                      background: 'rgba(255,255,255,0.05)',
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center'
+                    }}
+                  >
+                    <label className="form-label" style={{ marginBottom: 0, cursor: 'pointer' }}>プリセットから選択</label>
+                    <span className={`collapse-icon ${!expandedTabs.presets ? 'collapsed' : ''}`} style={{ fontSize: '0.875rem' }}>▼</span>
+                  </div>
+                  <div 
+                    style={{ 
+                      padding: expandedTabs.presets ? '1rem' : 0,
+                      maxHeight: expandedTabs.presets ? '500px' : '0',
+                      opacity: expandedTabs.presets ? 1 : 0,
+                      overflow: 'hidden',
+                      transition: 'all 0.3s ease'
+                    }}
+                  >
+                    <div className="preset-grid">
+                      {Object.entries(presets).map(([num, names]) => (
+                        <button
+                          key={num}
+                          onClick={() => selectPreset(parseInt(num))}
+                          className="preset-btn"
+                          style={{ padding: '0.5rem', fontSize: '0.875rem' }}
+                        >
+                          <span className="preset-label">P{num}</span>
+                          <span className="preset-heroes" style={{ fontSize: '0.75rem' }}>{names.join('・')}</span>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+
+                {/* 英雄個別設定 */}
+                <div className="space-y-4">
+                  {heroes.map((hero, i) => (
+                    <div key={i} className="hero-card">
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.375rem' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#64748b', fontWeight: 600, whiteSpace: 'nowrap' }}>英雄 {i + 1}</span>
+                        {heroData[hero.name]?.type && (
+                          <span className={`hero-type-badge type-${
+                            heroData[hero.name].type === '陸軍' ? 'land' :
+                            heroData[hero.name].type === '海軍' ? 'sea' : 'air'
+                          }`}>
+                            {heroData[hero.name].type}
+                          </span>
+                        )}
+                      </div>
+                      <div className="hero-grid">
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <select
+                            value={hero.name}
+                            onChange={(e) => updateHero(i, 'name', e.target.value)}
+                            className="form-select"
+                            style={{ fontSize: '1rem', fontWeight: '700' }}
+                          >
+                            {/* 外すを一番上に */}
+                            <option value="外す">外す</option>
+                            
+                            <optgroup label="━━━ 陸軍 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([name, data]) => data.type === '陸軍' && name !== '外す')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="━━━ 海軍 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([name, data]) => data.type === '海軍' && name !== '外す')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="━━━ 空軍 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([name, data]) => data.type === '空軍' && name !== '外す')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                            <optgroup label="━━━ 汎用 ━━━">
+                              {Object.entries(heroData)
+                                .filter(([name, data]) => (data.type === '汎用' || !data.type) && name !== '外す')
+                                .map(([name]) => (
+                                  <option key={name} value={name}>{name}</option>
+                                ))}
+                            </optgroup>
+                          </select>
+                        </div>
+                        <div className="form-group" style={{ marginBottom: 0 }}>
+                          <select
+                            value={hero.exclusiveLv}
+                            onChange={(e) => updateHero(i, 'exclusiveLv', parseInt(e.target.value))}
+                            className="form-select"
+                            style={{ fontSize: '0.95rem', fontWeight: '700', textAlign: 'center' }}
+                          >
+                            <option value={0}>専用なし</option>
+                            <option value={3}>専用３</option>
+                            <option value={5}>専用５</option>
+                            <option value={7}>専用７</option>
+                          </select>
+                        </div>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('titanEquip')}>
+                  <h2><SettingsIcon /> タイタン装備</h2>
+                  <span className={`collapse-icon ${!expandedTabs.titanEquip ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.titanEquip ? 'hidden' : ''}`}>
+                
+                <div className="toggle-container">
+                  <div 
+                    className={`toggle-switch ${titanEnabled ? 'active' : ''}`}
+                    onClick={() => setTitanEnabled(!titanEnabled)}
+                  >
+                    <div className="toggle-slider"></div>
+                  </div>
+                  <span className="toggle-label">
+                    タイタン効果: {titanEnabled ? 'ON' : 'OFF'}
+                  </span>
+                </div>
+
+                <div className="space-y-6">
+                  {heroes.map((hero, heroIdx) => (
+                    <div key={heroIdx} className="titan-section">
+                      <div 
+                        className="card-header" 
+                        onClick={() => toggleTitanHero(heroIdx)}
+                        style={{ cursor: 'pointer', marginBottom: '0.5rem' }}
+                      >
+                        <div className="titan-hero-name" style={{ margin: 0 }}>
+                          {hero.name}
+                          <span style={{ fontSize: '0.8rem', fontWeight: '500', color: '#94a3b8', marginLeft: '0.5rem' }}>
+                            {hero.exclusiveLv === 0 ? '専用なし' : hero.exclusiveLv === 3 ? '専用３' : hero.exclusiveLv === 5 ? '専用５' : '専用７'}
+                          </span>
+                        </div>
+                        <span className={`collapse-icon ${!expandedTitanHeroes[heroIdx] ? 'collapsed' : ''}`}>▼</span>
+                      </div>
+                      {expandedTitanHeroes[heroIdx] && (
+                        <div className="space-y-3">
+                          {slotNames.map((slotName, slotIdx) => {
+                            const Icon = slotIcons[slotName];
+                            return (
+                              <div key={slotIdx} className="titan-slot">
+                                <div className="titan-slot-header">
+                                  <Icon />
+                                  <span>{slotDisplayNames[slotIdx]}</span>
+                                </div>
+                                <div className="titan-slot-grid">
+                                  <select
+                                    value={titanEquip[heroIdx][slotIdx].effect}
+                                    onChange={(e) => updateTitan(heroIdx, slotIdx, 'effect', e.target.value)}
+                                    className="form-select"
+                                    style={{ fontSize: '0.875rem' }}
+                                  >
+                                    <option value="">選択なし</option>
+                                    {titanEffects[slotName].effects.map((eff, i) => (
+                                      <option key={i} value={eff.name}>
+                                        {eff.name} （{eff.desc}）
+                                      </option>
+                                    ))}
+                                  </select>
+                                  {titanEquip[heroIdx][slotIdx].effect && (
+                                    <select
+                                      value={titanEquip[heroIdx][slotIdx].level}
+                                      onChange={(e) => updateTitan(heroIdx, slotIdx, 'level', parseInt(e.target.value))}
+                                      className="form-select"
+                                      style={{ fontSize: '0.875rem' }}
+                                    >
+                                      {(() => {
+                                        const effect = titanEffects[slotName].effects.find(
+                                          e => e.name === titanEquip[heroIdx][slotIdx].effect
+                                        );
+                                        const maxLv = effect ? effect.levels.length : 7;
+                                        return Array.from({ length: maxLv }, (_, i) => (
+                                          <option key={i} value={i + 1}>{['Lv１','Lv２','Lv３','Lv４','Lv５','Lv６','Lv７'][i] || `Lv ${i+1}`}</option>
+                                        ));
+                                      })()}
+                                    </select>
+                                  )}
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                </div>
+              </div>
+
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('awakening')}>
+                  <h2><AwakeningIcon /> 覚醒</h2>
+                  <span className={`collapse-icon ${!expandedTabs.awakening ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.awakening ? 'hidden' : ''}`}>
+
+                  <div className="toggle-container">
+                    <div 
+                      className={`toggle-switch ${awakeningEnabled ? 'active' : ''}`}
+                      onClick={() => setAwakeningEnabled(!awakeningEnabled)}
+                    >
+                      <div className="toggle-slider"></div>
+                    </div>
+                    <span className="toggle-label">
+                      覚醒効果: {awakeningEnabled ? 'ON' : 'OFF'}
+                    </span>
+                  </div>
+
+                  <div className="space-y-6" style={{ opacity: awakeningEnabled ? 1 : 0.5, pointerEvents: awakeningEnabled ? 'auto' : 'none' }}>
+                    {heroes.map((hero, heroIdx) => {
+                      const isAwakeningCapable = isAwakeningCapableHero(hero.name);
+                      if (!isAwakeningCapable) {
+                        return (
+                          <div key={heroIdx} className="awakening-section awakening-section-inline">
+                            <div className="awakening-hero-name" style={{ color: '#64748b' }}>
+                              {hero.name || '（未選択）'}
+                            </div>
+                            <div className="awakening-not-supported">覚醒非対応の英雄です</div>
+                          </div>
+                        );
+                      }
+                      return (
+                        <div key={heroIdx} className="awakening-section">
+                          <div 
+                            className="card-header" 
+                            onClick={() => toggleAwakeningHero(heroIdx)}
+                            style={{ cursor: 'pointer', marginBottom: '0.5rem' }}
+                          >
+                            <div className="awakening-hero-name" style={{ margin: 0 }}>
+                              {hero.name}
+                            </div>
+                            <span className={`collapse-icon ${!expandedAwakeningHeroes[heroIdx] ? 'collapsed' : ''}`}>▼</span>
+                          </div>
+                          {expandedAwakeningHeroes[heroIdx] && (
+                            <div className="space-y-3">
+                              {AWAKENING_SKILL_LABELS.map((label, skillIdx) => {
+                                const skillKey = `lv${skillIdx + 1}`;
+                                const currentValue = awakening[heroIdx]?.[skillKey] ?? 0;
+                                return (
+                                  <div key={skillIdx} className="awakening-skill-row">
+                                    <div className="awakening-skill-label">
+                                      <span>{label}</span>
+                                      <span className="awakening-skill-value">ランク{currentValue}</span>
+                                    </div>
+                                    <input
+                                      type="range"
+                                      min="0"
+                                      max={AWAKENING_SKILL_MAX_RANK}
+                                      step="1"
+                                      value={currentValue}
+                                      onChange={(e) => updateAwakening(heroIdx, skillKey, e.target.value)}
+                                      className="awakening-slider"
+                                      style={{ '--fill': `${(currentValue / AWAKENING_SKILL_MAX_RANK) * 100}%` }}
+                                    />
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* 右カラム：計算結果 */}
+            <div className="space-y-6">
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('heroCalc')}>
+                  <h2 style={{ color: '#c084fc' }}>英雄計算</h2>
+                  <span className={`collapse-icon ${!expandedTabs.heroCalc ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.heroCalc ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
+                  {/* 編成メンバー表示 */}
+                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', padding: '0.4rem 0.5rem', background: 'rgba(15,23,42,0.5)', borderRadius: '0.375rem', border: '1px solid rgba(99,102,241,0.3)' }}>
+                    {heroes.map((hero, i) => (
+                      <div key={i} style={{ flex: 1, textAlign: 'center' }}>
+                        <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name}</div>
+                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                          {hero.exclusiveLv === 0 ? '専用なし' : hero.exclusiveLv === 3 ? '専用３' : hero.exclusiveLv === 5 ? '専用５' : '専用７'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                  {/* 火力と耐久の項目を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>基礎英雄火力</span>
+                        {titanEnabled && calculations.increases.heroBasePower > 0 && (
+                          <span className="result-increase">+{calculations.increases.heroBasePower}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-red">{formatNumber(calculations.heroBasePower)}倍</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>基礎英雄耐久</span>
+                        {titanEnabled && calculations.increases.heroBaseDurability > 0 && (
+                          <span className="result-increase">+{calculations.increases.heroBaseDurability}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-green">{formatNumber(calculations.heroBaseDurability)}倍</div>
+                    </div>
+                  </div>
+
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>追撃総ダメージ</span>
+                        {titanEnabled && calculations.increases.totalASDamage > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalASDamage}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-yellow">{formatNumber(calculations.totalASDamage)}%</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>パッシブダメージ</span>
+                        {titanEnabled && calculations.increases.passiveDamage > 0 && (
+                          <span className="result-increase">+{calculations.increases.passiveDamage}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-orange">{formatNumber(calculations.passiveDamage)}%</div>
+                    </div>
+                  </div>
+
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>鉄壁耐久補正</span>
+                        {titanEnabled && calculations.increases.ironWallCorrection > 0 && (
+                          <span className="result-increase">+{calculations.increases.ironWallCorrection}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>衰弱等耐久補正</span>
+                        {titanEnabled && calculations.increases.totalDebuffDurabilityCorrection > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalDebuffDurabilityCorrection}%</span>
+                        )}
+                      </div>
+                      <div className="result-value value-blue" style={{ fontWeight: 'bold' }}>{formatNumber(calculations.totalDebuffDurabilityCorrection)}</div>
+                    </div>
+                  </div>
+
+                  {/* 强调項目 */}
+                  <div className="result-box result-highlight">
+                    <div className="result-label">
+                      <span>英雄火力</span>
+                      {titanEnabled && calculations.increases.heroPower > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroPower}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-red" style={{ fontSize: '1.5rem' }}>
+                      {formatNumber(calculations.heroPower_display)}倍
+                    </div>
+                    {calculations.increases.compatibilityPower > 0 && (
+                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityPower}%</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="result-box result-highlight-green">
+                    <div className="result-label">
+                      <span>英雄耐久</span>
+                      {titanEnabled && calculations.increases.heroDurability > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroDurability}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-green" style={{ fontSize: '1.5rem' }}>
+                      {formatNumber(calculations.heroDurability_display)}倍
+                    </div>
+                    {calculations.increases.compatibilityDurability > 0 && (
+                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityDurability}%</span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.3), rgba(234, 179, 8, 0.3))' }}>
+                    <div className="result-label">
+                      <span>英雄強さ値</span>
+                      {titanEnabled && calculations.increases.heroStrength > 0 && (
+                        <span className="result-increase">+{calculations.increases.heroStrength}%</span>
+                      )}
+                    </div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.5rem' }}>
+                      {formatNumber(calculations.heroStrength_display)}
+                    </div>
+                    {calculations.increases.compatibilityStrength > 0 && (
+                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityStrength}%</span>
+                      </div>
+                    )}
+                  </div>
+                  </div>
+
+                  {/* さらに詳しく（折りたたみ可能） */}
+                  <div style={{ marginTop: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', overflow: 'hidden' }}>
+                    <div 
+                      onClick={() => toggleTab('heroCalcDetail')}
+                      style={{ 
+                        padding: '0.5rem 0.75rem', 
+                        cursor: 'pointer', 
+                        background: 'rgba(255,255,255,0.05)',
+                        display: 'flex',
+                        justifyContent: 'space-between',
+                        alignItems: 'center'
+                      }}
+                    >
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>さらに詳しく</span>
+                      <span className={`collapse-icon ${!expandedTabs.heroCalcDetail ? 'collapsed' : ''}`} style={{ fontSize: '0.875rem' }}>▼</span>
+                    </div>
+                    <div 
+                      style={{ 
+                        padding: expandedTabs.heroCalcDetail ? '0.75rem' : 0,
+                        maxHeight: expandedTabs.heroCalcDetail ? '1000px' : '0',
+                        opacity: expandedTabs.heroCalcDetail ? 1 : 0,
+                        overflow: 'hidden',
+                        transition: 'all 0.3s ease'
+                      }}
+                    >
+                      {/* 追撃火力比率・直接ダメージ関連（2列表示） */}
+                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                        {/* 追撃１発の火力重み */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            追撃１発の火力重み
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
+                        </div>
+                        
+                        {/* 直接攻撃１発の平均ダメージ */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            直接攻撃１発の平均ダメージ
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamagePerBullet)}%</div>
+                        </div>
+                        
+                        {/* 直接攻撃１発の火力重み */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            直接攻撃１発の火力重み
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamageRatio)}</div>
+                        </div>
+                        
+                        {/* 追撃依存率 */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            追撃依存率
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushDependencyRatio)}</div>
+                        </div>
+
+                        {/* 磁気ダメージ依存率 */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            磁気ダメージ依存率
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.magneticDependencyRatio)}</div>
+                        </div>
+
+                        {/* 燃焼ダメージ依存率 */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            燃焼ダメージ依存率
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.burningDependencyRatio)}</div>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* バフ相性計算 */}
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('buffCalc')}>
+                  <h2 style={{ color: '#86efac' }}>バフ相性計算</h2>
+                  <span className={`collapse-icon ${!expandedTabs.buffCalc ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.buffCalc ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
+                  {/* 耐久と火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        バフ相性耐久
+                      </div>
+                      <div className="result-value value-green">{formatNumber(calculations.compatDurability)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        バフ相性火力
+                      </div>
+                      <div className="result-value value-red">{formatNumber(calculations.compatPower)}</div>
+                    </div>
+                  </div>
+                  
+                  {/* 強さ値（強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
+                    <div className="result-label">
+                      バフ相性強さ値
+                    </div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatStrength)}</div>
+                  </div>
+                  
+                  {/* 出撃耐久と火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        バフ相性出撃耐久
+                      </div>
+                      <div className="result-value value-green">{formatNumber(calculations.compatTroopDurability)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        バフ相性出撃火力
+                      </div>
+                      <div className="result-value value-red">{formatNumber(calculations.compatTroopPower)}</div>
+                    </div>
+                  </div>
+                  
+                  {/* 出撃強さ値（強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
+                    <div className="result-label">
+                      バフ相性出撃強さ値
+                    </div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopStrength)}</div>
+                  </div>
+                  
+                  {/* 兵士耐久と火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        バフ相性出撃兵士耐久
+                      </div>
+                      <div className="result-value value-green">{formatNumber(calculations.compatTroopSoldierDurability)}</div>
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        バフ相性出撃兵士火力
+                      </div>
+                      <div className="result-value value-red">{formatNumber(calculations.compatTroopSoldierPower)}</div>
+                    </div>
+                  </div>
+                  
+                  {/* 兵士強さ値（強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
+                    <div className="result-label">
+                      バフ相性出撃兵士強さ値
+                    </div>
+                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopSoldierStrength)}</div>
+                  </div>
+                </div>
+                </div>
+              </div>
+
+              {/* 編成総合評価 */}
+              <div className="card">
+                <div className="card-header" onClick={() => toggleTab('totalEval')}>
+                  <h2 style={{ color: '#fde047' }}>編成総合評価</h2>
+                  <span className={`collapse-icon ${!expandedTabs.totalEval ? 'collapsed' : ''}`}>▼</span>
+                </div>
+                <div className={`card-content ${!expandedTabs.totalEval ? 'hidden' : ''}`}>
+                  <div className="space-y-2">
+                  {/* 総合耐久と総合火力を2列並び */}
+                  <div className="result-grid-2">
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>総合耐久</span>
+                      </div>
+                      <div className="result-value value-green" style={{ fontSize: '1.25rem' }}>
+                        {formatNumber(calculations.totalDurability)}
+                      </div>
+                      {(titanEnabled && calculations.increases.totalDurability > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0) ? (
+                        <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                          {titanEnabled && calculations.increases.totalDurability > 0 && (
+                            <span className="result-increase">+{calculations.increases.totalDurability}%</span>
+                          )}
+                          {compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0 && (
+                            <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="result-box">
+                      <div className="result-label">
+                        <span>総合火力</span>
+                      </div>
+                      <div className="result-value value-red" style={{ fontSize: '1.25rem' }}>
+                        {formatNumber(calculations.totalPower)}
+                      </div>
+                      {(titanEnabled && calculations.increases.totalPower > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0) ? (
+                        <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                          {titanEnabled && calculations.increases.totalPower > 0 && (
+                            <span className="result-increase">+{calculations.increases.totalPower}%</span>
+                          )}
+                          {compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0 && (
+                            <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
+                          )}
+                        </div>
+                      ) : null}
+                    </div>
+                  </div>
+
+                  {/* 編成総合強さ値（大きく強調） */}
+                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.4), rgba(234, 179, 8, 0.4))', marginTop: '0.5rem' }}>
+                    <div className="result-label">
+                      <span>編成総合強さ値</span>
+                    </div>
+                    <div className="result-value value-yellow" style={{ fontSize: '2rem', fontWeight: '900' }}>
+                      {formatNumber(calculations.totalStrength)}
+                    </div>
+                    {(titanEnabled && calculations.increases.totalStrength > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0) ? (
+                      <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        {titanEnabled && calculations.increases.totalStrength > 0 && (
+                          <span className="result-increase">+{calculations.increases.totalStrength}%</span>
+                        )}
+                        {compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0 && (
+                          <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
+                        )}
+                      </div>
+                    ) : null}
+                  </div>
+
+                  {/* 編成の火力耐久比 */}
+                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.8' }}>
+                    <div className="result-label" style={{ fontSize: '0.875rem' }}>
+                      編成の火力耐久比
+                    </div>
+                    <div className="result-value" style={{ fontSize: '1rem' }}>
+                      {formatNumber(calculations.powerDurabilityRatio)}
+                    </div>
+                  </div>
+                </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* システム開発ログ */}
+          <div className="card" style={{ marginTop: '1.5rem' }}>
+            <div className="card-header" onClick={() => toggleTab('devLog')}>
+              <h2>📝 システム開発ログ</h2>
+              <span className={`collapse-icon ${!expandedTabs.devLog ? 'collapsed' : ''}`}>▼</span>
+            </div>
+            <div className={`card-content ${!expandedTabs.devLog ? 'hidden' : ''}`}>
+              <div className="space-y-2">
+                {devLog.map((log, i) => (
+                  <div
+                    key={i}
+                    style={{
+                      display: 'flex',
+                      alignItems: 'flex-start',
+                      gap: '0.75rem',
+                      padding: '0.5rem 0.75rem',
+                      background: i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent',
+                      borderRadius: '0.375rem',
+                      fontSize: '0.875rem'
+                    }}
+                  >
+                    <span style={{ color: '#64748b', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
+                      {log.date}
+                    </span>
+                    {log.version && (
+                      <span style={{ color: '#fbbf24', whiteSpace: 'nowrap', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
+                        {log.version}
+                      </span>
+                    )}
+                    <span
+                      style={{
+                        whiteSpace: 'nowrap',
+                        padding: '0.1rem 0.5rem',
+                        borderRadius: '999px',
+                        fontSize: '0.75rem',
+                        fontWeight: 600,
+                        background:
+                          log.category === '英雄' ? 'rgba(34, 197, 94, 0.15)' :
+                          log.category === 'バランス' ? 'rgba(239, 68, 68, 0.15)' :
+                          log.category === 'UI' ? 'rgba(168, 85, 247, 0.15)' :
+                          'rgba(59, 130, 246, 0.15)',
+                        color:
+                          log.category === '英雄' ? '#86efac' :
+                          log.category === 'バランス' ? '#fca5a5' :
+                          log.category === 'UI' ? '#d8b4fe' :
+                          '#93c5fd'
+                      }}
+                    >
+                      {log.category}
+                    </span>
+                    <span>{log.text}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#64748b' }}>
+                ※ このログはコード内の <code>devLog</code> 配列を直接編集することで更新できます（先頭に追加＝最新表示）。
+              </div>
+            </div>
+          </div>
+        </div>
+      );
+    }
+
+    ReactDOM.render(<GameCalculator />, document.getElementById('root'));
+  </script>
+</body>
+</html>
