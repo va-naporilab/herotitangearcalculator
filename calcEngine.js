@@ -13,7 +13,46 @@
 //   buffs, compatibility, heroes, titanEquip, titanEnabled,
 //   awakeningEnabled, powerRoundWeights, durabilityRoundWeights, awakening
 // 【出力】
-//   従来の `calculations` と同一のオブジェクト
+//   従来の `calculations` と同一のオブジェクト（＋下記のダメージ台帳）
+//
+// 【ダメージ台帳 damageLedger（追加）】
+//   calculations.damageLedger            … タイタン反映後（withTitan）
+//   calculations.damageLedgerWithoutTitan … タイタン無し
+//   最終集計（追撃総ダメージ=AS / パッシブダメージ=PS）に入る全項目に、由来のタグを付けた記録。
+//     entries[] : { hero, heroIndex, phase, kind, origin, source, slot, value, share }
+//       hero   : 英雄名（通常攻撃など英雄に属さないものは null）
+//       phase  : 'AS' | 'PS'（実際に加算された集計先。アカネ・フェルムのPS磁気はAS側に入る。PS脆弱はPS側）
+//       kind   : 'direct' | 'magnetic' | 'burning' | 'vulnerable'
+//       origin : 'base' | 'hero' | 'titan' | 'awakening'
+//     byPhase / byKind / byPhaseKind / byOrigin / byHero … 集計済みの合計
+//   ※ AS合計・PS合計は totalASDamage / passiveDamage と一致する（検証済み）
+
+// ダメージ台帳の集計ヘルパー：index.html から読みやすい形にまとめる
+// 戻り値: { entries, total, byPhase, byKind, byPhaseKind, byOrigin, byHero, meta }
+//   entries[]   : { hero, heroIndex, phase, kind, origin, source, slot, value, share(総火力に対する割合) }
+//   byHero      : 英雄名 → { total, AS, PS, direct, magnetic, burning, vulnerable }（英雄に属さないものは '共通'）
+function summarizeDamageLedger(rawEntries, meta) {
+  const zeroKinds = () => ({ direct: 0, magnetic: 0, burning: 0, vulnerable: 0 });
+  const total = rawEntries.reduce((s, e) => s + e.value, 0);
+  const byPhase = { AS: 0, PS: 0 };
+  const byKind = zeroKinds();
+  const byPhaseKind = { AS: zeroKinds(), PS: zeroKinds() };
+  const byOrigin = { base: 0, hero: 0, titan: 0, awakening: 0 };
+  const byHero = {};
+  const entries = rawEntries.map(e => {
+    byPhase[e.phase] += e.value;
+    byKind[e.kind] += e.value;
+    byPhaseKind[e.phase][e.kind] += e.value;
+    byOrigin[e.origin] += e.value;
+    const key = e.hero || '共通';
+    if (!byHero[key]) byHero[key] = { total: 0, AS: 0, PS: 0, ...zeroKinds() };
+    byHero[key].total += e.value;
+    byHero[key][e.phase] += e.value;
+    byHero[key][e.kind] += e.value;
+    return { ...e, share: total > 0 ? e.value / total : 0 };
+  });
+  return { entries, total, byPhase, byKind, byPhaseKind, byOrigin, byHero, meta: { ...meta } };
+}
 
 function calculateAll({
   buffs,
@@ -105,6 +144,22 @@ function calculateAll({
     // 磁気・燃焼ダメージ追跡（依存率表示用。追撃総ダメージ・パッシブダメージ双方から発生しうる）
     let totalMagneticDamage = 0;
     let totalBurningDamage = 0;
+    // ===== ダメージ台帳：最終集計(totalASDamage / totalPSDamage)に入る各項目へのタグ付き記録 =====
+    //  hero   : 由来の英雄名（通常攻撃など英雄に属さないものは null）
+    //  idx    : 編成内の位置（同名英雄の区別用）
+    //  phase  : 実際に加算された集計先 'AS'(追撃総ダメージ) | 'PS'(パッシブダメージ)
+    //  kind   : 'direct'(直接) | 'magnetic'(磁気) | 'burning'(燃焼) | 'vulnerable'(脆弱：AS側の破凱・マゼリア・全軍突撃分のみ。PS脆弱は PS/direct)
+    //  origin : 'base'(通常攻撃) | 'hero'(英雄スキル) | 'titan'(タイタン装備) | 'awakening'(覚醒スキル)
+    //  source : 効果名ラベル / slot : タイタン装備の部位 / value : 加算された値
+    // ※既存の集計変数への加算はそのまま。各加算の直後に記録だけを足している（計算値には影響しない）
+    const damageLedger = [];
+    const damageLedgerMeta = { heartbeatCoeff: 1 };
+const ledgerSum = (phase, kind) => damageLedger.reduce((sum, e) => (e.phase === phase && e.kind === kind) ? sum + e.value : sum, 0);
+    const ledgerAdd = ({ hero = null, idx = null, phase, kind, origin, source, value, slot = null }) => {
+      const entry = { hero, heroIndex: idx, phase, kind, origin, source, slot, value };
+      damageLedger.push(entry);
+      return entry;
+    };
 
     // 敵の異常ダメージ軽減：磁気・燃焼ダメージ全てに 1 / (1 + 軽減値/100) を適用
     const abnormalReductionDivisor = 1 + ((buffs.enemyAbnormalDamageReduction || 0) / 100);
@@ -137,6 +192,7 @@ function calculateAll({
     const basicAttackDamage = getBasicAttack();
     totalDirectDamage += basicAttackDamage;
     let totalPSDamage = basicAttackDamage;
+    const basicAttackEntry = ledgerAdd({ hero: null, idx: null, phase: 'PS', kind: 'direct', origin: 'base', source: '通常攻撃', value: basicAttackDamage });
     let maxIronWall = 0;
     let maxIronWallExLv = 0;
     let hasIronWall = false;
@@ -695,6 +751,7 @@ function calculateAll({
         
         const asDamageAmount = actualRate * finalDamage * bullets * asDamageMultiplier;
         totalASDamage += asDamageAmount;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'hero', source: 'AS本体', value: asDamageAmount });
         
         // 直接ダメージとして追跡
         totalDirectDamage += asDamageAmount;
@@ -715,6 +772,7 @@ function calculateAll({
             : data.asBurning;
           const asBurningDamage = (actualRate * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalASDamage += asBurningDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'burning', origin: 'hero', source: 'AS付随燃焼', value: asBurningDamage });
           totalBurningDamage += asBurningDamage;
         }
 
@@ -731,6 +789,7 @@ function calculateAll({
             const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
             const extraDamage = (actualRate * extra.damage * adjustedBullets * magneticBoost / 100) / abnormalReductionDivisor;
             totalASDamage += extraDamage;
+            ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'hero', source: 'AS追加磁気', value: extraDamage });
             totalMagneticDamage += extraDamage;
             // ペトラの追加磁気は磁気属性なので直接ダメージには含めない
             
@@ -747,6 +806,7 @@ function calculateAll({
           const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
           const scatterDamage = actualRate * scatterInfo.damage * scatterInfo.bullets;
           totalASDamage += scatterDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'hero', source: 'AS追加直接ダメージ', value: scatterDamage });
           totalDirectDamage += scatterDamage;
           totalDirectBullets += actualRate * scatterInfo.bullets;
           
@@ -787,6 +847,7 @@ function calculateAll({
           // 拡散ダメージ = AS発動率 × 拡散ダメージ/弾 × AS弾数 × 拡散弾数
           const totalScatterDamage = actualRate * scatterDamagePerBullet * asBullets * scatterBullets;
           totalASDamage += totalScatterDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'hero', source: '拡散ダメージ', value: totalScatterDamage });
           // 拡散ダメージも直接ダメージに含める
           totalDirectDamage += totalScatterDamage;
           totalDirectBullets += actualRate * asBullets * scatterBullets;
@@ -804,6 +865,7 @@ function calculateAll({
           const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
           const psMagneticDamage = (psInfo.rate * psInfo.value * psInfo.count * magneticBoost / 100) / abnormalReductionDivisor;
           totalASDamage += psMagneticDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: psMagneticDamage });
           totalMagneticDamage += psMagneticDamage;
           // 磁気数を集計
           totalMagneticBulletsExpected += psInfo.rate * psInfo.count;
@@ -820,6 +882,7 @@ function calculateAll({
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
           const openingBurningDamage = (openInfo.rate * openInfo.value * openInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalPSDamage += openingBurningDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'burning', origin: 'hero', source: '開幕燃焼', value: openingBurningDamage });
           totalBurningDamage += openingBurningDamage;
         }
       }
@@ -831,6 +894,7 @@ function calculateAll({
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
           const psBurningDamage = (psInfo.rate * psInfo.value * psInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalPSDamage += psBurningDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'burning', origin: 'hero', source: 'PS燃焼', value: psBurningDamage });
           totalBurningDamage += psBurningDamage;
         }
       }
@@ -845,6 +909,7 @@ function calculateAll({
           const tauntBurningDamage = (tauntInfo.rate * tauntInfo.burningValue * tauntInfo.burningCount * 
                                      burningBoost / 100 * tauntWeight) / abnormalReductionDivisor;
           totalPSDamage += tauntBurningDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'burning', origin: 'hero', source: '挑発燃焼', value: tauntBurningDamage });
           totalBurningDamage += tauntBurningDamage;
         }
       }
@@ -859,6 +924,7 @@ function calculateAll({
         const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
         const miyaMagneticDamage = (damage * bullets * magneticBoost / 100) / abnormalReductionDivisor;
         totalPSDamage += miyaMagneticDamage;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: miyaMagneticDamage });
         totalMagneticDamage += miyaMagneticDamage;
         // ミヤの磁気数を集計
         totalMagneticBulletsExpected += bullets;
@@ -1037,6 +1103,8 @@ function calculateAll({
     let revengeDirectDamage = 0;
     let revengeDamageReduction = 0;  // 復讐ダメ減（英雄基礎耐久に加算）
     let maxRevengeData = null;
+    let maxRevengeHero = null;
+    let maxRevengeIdx = null;
     
     // 復讐データの収集（最大値のみ適用）
     heroes.forEach((hero, i) => {
@@ -1048,6 +1116,8 @@ function calculateAll({
         const revengeData = typeof data.revenge === 'function' ? data.revenge(exLv) : data.revenge;
         if (!maxRevengeData || revengeData.damage > maxRevengeData.damage) {
           maxRevengeData = revengeData;
+          maxRevengeHero = hero.name;
+          maxRevengeIdx = i;
         }
       }
     });
@@ -1165,6 +1235,7 @@ function calculateAll({
               const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
               const titanMagneticDamage = (asRate * magneticValue * magneticCount * magneticBoost / 100) / abnormalReductionDivisor;
               totalASDamage += titanMagneticDamage;
+              ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'titan', source: 'タイタン:磁場', value: titanMagneticDamage, slot: slotNames[slotIdx] });
               totalMagneticDamage += titanMagneticDamage;
               // 磁気数期待値を集計
               totalMagneticBulletsExpected += asRate * magneticCount;
@@ -1180,6 +1251,7 @@ function calculateAll({
               const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
               const titanBurningDamage = (asRate * burningValue * burningCount * burningBoost / 100) / abnormalReductionDivisor;
               totalASDamage += titanBurningDamage;
+              ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'burning', origin: 'titan', source: 'タイタン:灼熱', value: titanBurningDamage, slot: slotNames[slotIdx] });
               totalBurningDamage += titanBurningDamage;
             }
           }
@@ -1199,6 +1271,7 @@ function calculateAll({
                                   (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
                                   (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
               totalASDamage += vulnerDamage;
+              ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'titan', source: 'タイタン:破凱', value: vulnerDamage, slot: slotNames[slotIdx] });
               // 脆弱ダメージは脆弱属性として別途追跡（弾数はカウントしない）
               totalVulnerableDamage += vulnerDamage;
               // AS直接ダメージとして追跡（追撃火力比率計算用）
@@ -1212,6 +1285,13 @@ function calculateAll({
     }
 
     // 英雄固有のPS脆弱ダメージ（タイタンON/OFFに関わらず適用）
+    // 【計上ルール】PS脆弱（ノーラ・アデル／ソフィ・ヒヨリ／アリア＆ティナ）は
+    //   ・パッシブダメージ(PS)集計に加算
+    //   ・属性は直接ダメージ(totalDirectDamage)に計上（脆弱属性・AS直接ダメージ追跡には入れない）
+    //   ・直接弾数(totalDirectBullets)にはカウントしない
+    // ループ内で totalDirectDamage を随時増やすと、後続の脆弱計算（マゼリア・アリア＆ティナ）の
+    // 「直接火力/弾数」基準が編成順に依存してしまうため、直接ダメージへの加算はループ後にまとめて行う。
+    let psVulnerableDirectPending = 0;
     heroes.forEach((hero, i) => {
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
@@ -1224,10 +1304,9 @@ function calculateAll({
         const baseDamage = data.psVulnerableDamage(exLv);
         const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
         const nolaPSVulnerDamage = baseDamage * (vulnerValue / 100) * (vulnerBoost / 100) * triggerRate / ((100 + totalAttackBuff) / 100);
-        totalASDamage += nolaPSVulnerDamage;
-        totalVulnerableDamage += nolaPSVulnerDamage;
-        // AS直接ダメージとして追跡
-        totalASDirectDamage += nolaPSVulnerDamage;
+        totalPSDamage += nolaPSVulnerDamage;
+        psVulnerableDirectPending += nolaPSVulnerDamage;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS脆弱', value: nolaPSVulnerDamage });
       }
 
       // マゼリアのAS脆弱付与
@@ -1240,6 +1319,7 @@ function calculateAll({
                              (vulnerValue / 100) * (vulnerCount * lossCoef * 0.95) *
                              (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
         totalASDamage += vulnerDamage;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'hero', source: 'AS脆弱', value: vulnerDamage });
         totalVulnerableDamage += vulnerDamage;
         totalASDirectDamage += vulnerDamage;
         totalVulnerableBulletsExpected += actualRate * vulnerCount * lossCoef * 0.95;
@@ -1250,10 +1330,9 @@ function calculateAll({
         const psInfo = data.psVulnerable(exLv);
         const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
         const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-        totalASDamage += psvulnerDamage;
-        totalVulnerableDamage += psvulnerDamage;
-        // AS直接ダメージとして追跡
-        totalASDirectDamage += psvulnerDamage;
+        totalPSDamage += psvulnerDamage;
+        psVulnerableDirectPending += psvulnerDamage;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS脆弱', value: psvulnerDamage });
       }
       
       // アリア＆ティナのPS脆弱（専5以上で1ラウンドに1度）
@@ -1264,20 +1343,22 @@ function calculateAll({
           // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × 付与数 × 発動率 × 脆弱強化 / 攻撃強化補正
           const ariaPSVulnerDamage = psInfo.rate * (totalDirectDamage / (totalDirectBullets || 1)) *
                                      (psInfo.value / 100) * psInfo.count * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-          totalASDamage += ariaPSVulnerDamage;
-          totalVulnerableDamage += ariaPSVulnerDamage;
-          // AS直接ダメージとして追跡
-          totalASDirectDamage += ariaPSVulnerDamage;
+          totalPSDamage += ariaPSVulnerDamage;
+          psVulnerableDirectPending += ariaPSVulnerDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS脆弱', value: ariaPSVulnerDamage });
           // 脆弱数期待値を集計
           totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
         }
       }
     });
+    // PS脆弱分を直接ダメージ属性として計上（直接弾数は増やさない）
+    totalDirectDamage += psVulnerableDirectPending;
 
     // 復讐ダメージをパッシブダメージと直接ダメージに追加
     let revengeBulletCount = 0;
     if (revengeDirectDamage > 0 && maxRevengeData) {
       totalPSDamage += revengeDirectDamage;
+      ledgerAdd({ hero: maxRevengeHero, idx: maxRevengeIdx, phase: 'PS', kind: 'direct', origin: 'hero', source: '復讐', value: revengeDirectDamage });
       totalDirectDamage += revengeDirectDamage;
       // 復讐ダメージの弾数（期待値個数、1個あたり1発）
       revengeBulletCount = revengeExpectedCount;
@@ -1315,6 +1396,7 @@ function calculateAll({
 
     // 3. PS連撃の集計
     let totalComboExpectedCount = 0;  // 連撃回数期待値
+    const comboContributors = [];
     heroes.forEach(hero => {
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
@@ -1326,6 +1408,7 @@ function calculateAll({
         if (combo) {
           // 連撃回数期待値 = 発動率 × 連撃回数
           totalComboExpectedCount += combo.rate * combo.count;
+          comboContributors.push({ name: hero.name, idx: heroes.indexOf(hero), w: combo.rate * combo.count });
         }
       }
     });
@@ -1339,6 +1422,7 @@ function calculateAll({
       // 通常攻撃を強化された値に置き換え
       totalPSDamage = totalPSDamage - basicAttackDamage + enhancedBasicAttack;
       totalDirectDamage = totalDirectDamage - basicAttackDamage + enhancedBasicAttack;
+      basicAttackEntry.value = enhancedBasicAttack;
     }
 
     // 5. 連撃ダメージの計算
@@ -1351,6 +1435,9 @@ function calculateAll({
       
       // パッシブダメージに加算
       totalPSDamage += comboDamage;
+      comboContributors.forEach(c => {
+        ledgerAdd({ hero: c.name, idx: c.idx, phase: 'PS', kind: 'direct', origin: 'hero', source: '連撃', value: comboDamage * c.w / totalComboExpectedCount });
+      });
       
       // 直接ダメージに加算（連撃は直接ダメージ属性）
       totalDirectDamage += comboDamage;
@@ -1367,6 +1454,7 @@ function calculateAll({
         const psInfo = data.psAdditionalDamage(exLv);
         const additionalDamage = psInfo.rate * psInfo.damage * psInfo.multiplier * psInfo.count;
         totalPSDamage += additionalDamage;
+        ledgerAdd({ hero: hero.name, idx: heroes.indexOf(hero), phase: 'PS', kind: 'direct', origin: 'hero', source: 'PS追加ダメージ', value: additionalDamage });
         totalDirectDamage += additionalDamage;
         const bulletCount = psInfo.rate * psInfo.multiplier * psInfo.count;
         totalDirectBullets += bulletCount;
@@ -1377,6 +1465,8 @@ function calculateAll({
     let rushBonus = 0;
     let rushMagneticBonus = 0;
     let rushBurningBonus = 0;
+    const rushParts = [];
+    const rushAdd = (hero, idx, bucket, kind, source, raw, slot = null) => rushParts.push({ hero: hero.name, idx, bucket, kind, source, raw, slot });
     if (useTitan) {
       heroes.forEach((hero, i) => {
         const data = heroData[hero.name];
@@ -1396,15 +1486,17 @@ function calculateAll({
         });
 
         if (hasRush && data.asRate) {
+          const exLv = hero.exclusiveLv;
           const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
           const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
-          const exLv = hero.exclusiveLv;
           
           // AS直接ダメージの全突分
           if (data.asDamage && data.asBullets) {
             const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
             const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null);
-            rushBonus += actualRate * damage * bullets * (rushValue / 100);
+            const rushPartAs = actualRate * damage * bullets * (rushValue / 100);
+            rushBonus += rushPartAs;
+            rushAdd(hero, i, 'plain', 'direct', '全軍突撃:AS本体', rushPartAs);
           }
 
           // ペトラのAS追加磁気の全突分（磁気属性だが全突対象）
@@ -1418,14 +1510,18 @@ function calculateAll({
                 : (exLv >= 5 ? 5 : 4);
               const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
               const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-              rushMagneticBonus += actualRate * extra.damage * adjustedBullets * magneticBoost / 100 * (rushValue / 100);
+              const rushPartExtra = actualRate * extra.damage * adjustedBullets * magneticBoost / 100 * (rushValue / 100);
+              rushMagneticBonus += rushPartExtra;
+              rushAdd(hero, i, 'abnormal', 'magnetic', '全軍突撃:AS追加磁気', rushPartExtra);
             }
           }
 
           // アカネのAS追加直接ダメージの全突分（拡散ダメージではないため、レイチェル等の拡散補正は適用しない）
           if (hero.name === 'アカネ' && data.asScatterDamage) {
             const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
-            rushBonus += actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
+            const rushPartAkane = actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
+            rushBonus += rushPartAkane;
+            rushAdd(hero, i, 'plain', 'direct', '全軍突撃:AS追加直接ダメージ', rushPartAkane);
           }
 
           // コレット・ピスカ・ルーシィの拡散ダメージの全突分
@@ -1455,7 +1551,9 @@ function calculateAll({
             
             // 拡散ダメージ = AS発動率 × 拡散ダメージ/弾 × AS弾数 × 拡散弾数
             const totalScatterDamage = actualRate * scatterDamagePerBullet * asBullets * scatterBullets;
-            rushBonus += totalScatterDamage * (rushValue / 100);
+            const rushPartScatter = totalScatterDamage * (rushValue / 100);
+            rushBonus += rushPartScatter;
+            rushAdd(hero, i, 'plain', 'direct', '全軍突撃:拡散ダメージ', rushPartScatter);
           }
 
           // 磁場（磁気付与）の全突分
@@ -1466,7 +1564,9 @@ function calculateAll({
                 const magneticValue = effect.levels[equip.level - 1];
                 const magneticCount = effect.counts[equip.level - 1];
                 const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-                rushMagneticBonus += actualRate * magneticValue * magneticCount * magneticBoost / 100 * (rushValue / 100);
+                const rushPartMag = actualRate * magneticValue * magneticCount * magneticBoost / 100 * (rushValue / 100);
+                rushMagneticBonus += rushPartMag;
+                rushAdd(hero, i, 'abnormal', 'magnetic', '全軍突撃:磁場', rushPartMag, slotNames[slotIdx]);
               }
             }
 
@@ -1477,7 +1577,9 @@ function calculateAll({
                 const burningValue = effect.levels[equip.level - 1];
                 const burningCount = effect.counts[equip.level - 1];
                 const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
-                rushBurningBonus += actualRate * burningValue * burningCount * burningBoost / 100 * (rushValue / 100);
+                const rushPartBurn = actualRate * burningValue * burningCount * burningBoost / 100 * (rushValue / 100);
+                rushBurningBonus += rushPartBurn;
+                rushAdd(hero, i, 'abnormal', 'burning', '全軍突撃:灼熱', rushPartBurn, slotNames[slotIdx]);
               }
             }
 
@@ -1492,7 +1594,9 @@ function calculateAll({
                 const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
                                     (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
                                     (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-                rushBonus += vulnerDamage * (rushValue / 100);
+                const rushPartVuln = vulnerDamage * (rushValue / 100);
+                rushBonus += rushPartVuln;
+                rushAdd(hero, i, 'plain', 'vulnerable', '全軍突撃:破凱', rushPartVuln, slotNames[slotIdx]);
               }
             }
           });
@@ -1504,7 +1608,9 @@ function calculateAll({
             const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) *
                                  (vulnerValue / 100) * (vulnerCount * lossCoef * 0.95) *
                                  (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-            rushBonus += vulnerDamage * (rushValue / 100);
+            const rushPartVuln = vulnerDamage * (rushValue / 100);
+            rushBonus += rushPartVuln;
+            rushAdd(hero, i, 'plain', 'vulnerable', '全軍突撃:AS脆弱', rushPartVuln);
           }
         }
       });
@@ -1517,6 +1623,11 @@ function calculateAll({
       totalASDamage += rushContribution + rushMagneticContribution + rushBurningContribution;
       totalMagneticDamage += rushMagneticContribution;
       totalBurningDamage += rushBurningContribution;
+      rushParts.forEach(p => {
+        const w = powerRoundWeights[0];
+        const v = p.bucket === 'plain' ? p.raw * w : (p.raw * w) / abnormalReductionDivisor;
+        ledgerAdd({ hero: p.hero, idx: p.idx, phase: 'AS', kind: p.kind, origin: 'titan', source: p.source, value: v, slot: p.slot });
+      });
     }
 
     // ===== 覚醒スキル：ランク依存効果の増分計上 =====
@@ -1553,6 +1664,7 @@ function calculateAll({
       agg.attachedMagnetics.forEach(mag => {
         const dmg = (actualRate * mag.value * mag.count * magneticBoost / 100) / abnormalReductionDivisor;
         totalASDamage += dmg;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'awakening', source: '覚醒:AS付随磁気' + (mag.skill ? '(スキル' + mag.skill + ')' : ''), value: dmg });
         totalMagneticDamage += dmg;
       });
 
@@ -1565,6 +1677,7 @@ function calculateAll({
           data.psMagneticBullets + runeMagneticBonus;
         const dmg = (agg.passiveMagneticDamageFlatSum * bullets * magneticBoost / 100) / abnormalReductionDivisor;
         totalPSDamage += dmg;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'awakening', source: '覚醒:パッシブ磁気加算', value: dmg });
         totalMagneticDamage += dmg;
       }
 
@@ -1574,7 +1687,9 @@ function calculateAll({
         if (reactivateExpected <= 0) return;
 
         // 再発動したASのダメージ（ランク依存のダメージ割合を適用。覚醒ASダメ加算込み）
-        totalASDamage += reactivateExpected * effectiveAsDamage * baseAsBullets * (damageRatio / 100);
+        const reactAsDamage = reactivateExpected * effectiveAsDamage * baseAsBullets * (damageRatio / 100);
+        totalASDamage += reactAsDamage;
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'awakening', source: '覚醒:再発動AS', value: reactAsDamage });
 
         if (!reactivateAsEffects) return;
 
@@ -1584,6 +1699,7 @@ function calculateAll({
           const burningInfo = typeof data.asBurning === 'function' ? data.asBurning(hasYuzuha, hasNorshu) : data.asBurning;
           const reactBurningDamage = (reactivateExpected * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalASDamage += reactBurningDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'burning', origin: 'awakening', source: '覚醒:再発動燃焼', value: reactBurningDamage });
           totalBurningDamage += reactBurningDamage;
         }
 
@@ -1591,6 +1707,7 @@ function calculateAll({
         agg.attachedMagnetics.forEach(mag => {
           const reactMagDamage = (reactivateExpected * mag.value * mag.count * magneticBoost / 100) / abnormalReductionDivisor;
           totalASDamage += reactMagDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'awakening', source: '覚醒:再発動磁気' + (mag.skill ? '(スキル' + mag.skill + ')' : ''), value: reactMagDamage });
           totalMagneticDamage += reactMagDamage;
         });
       });
@@ -1714,7 +1831,14 @@ function calculateAll({
     if (heartbeatDamageIncrease > 0) {
       const heartbeatCoeff = (buffs.damageIncrease + 100 + totalDamageIncreaseBonus + heartbeatDamageIncrease) / 
                              (buffs.damageIncrease + 100 + totalDamageIncreaseBonus);
+      // 依存率（磁気・燃焼）の分子にも、PS側から発生した分だけ同じ鼓動係数を反映する。
+      // （従来は分母の totalPSDamage だけが鼓動で膨らみ、分子が膨らまないためにずれていた）
+      // 台帳に記録済みのPS磁気・PS燃焼の合計を使う（鼓動係数を掛ける前の値）。
+      totalMagneticDamage += ledgerSum('PS', 'magnetic') * (heartbeatCoeff - 1);
+      totalBurningDamage += ledgerSum('PS', 'burning') * (heartbeatCoeff - 1);
       totalPSDamage *= heartbeatCoeff;
+      damageLedger.forEach(e => { if (e.phase === 'PS') e.value *= heartbeatCoeff; });
+      damageLedgerMeta.heartbeatCoeff = heartbeatCoeff;
       // 通常攻撃のみに鼓動効果を適用（通常攻撃強化済みのenhancedBasicAttackに適用）
       const heartbeatEnhancedBasicAttack = enhancedBasicAttack * heartbeatCoeff;
       totalDirectDamage = totalDirectDamage - enhancedBasicAttack + heartbeatEnhancedBasicAttack;
@@ -1806,7 +1930,7 @@ function calculateAll({
     const heroDurability = heroBaseDurability * ironWallCorrection * totalDebuffDurabilityCorrection;
     const heroStrength = heroPower * heroDurability;
 
-    // ダメージ属性の構造（将来的な拡張用）
+    // ダメージ属性の構造 → 実装は上の damageLedger（各項目にhero/phase/kind/originタグ）を参照
     // damageBreakdown = {
     //   direct: { // 直接ダメージ（脆弱の影響を受ける）
     //     as: AS直接ダメージの合計,
@@ -1856,6 +1980,7 @@ function calculateAll({
       damageReductionCoeff,
       totalASDamage,
       passiveDamage,
+      damageLedger: summarizeDamageLedger(damageLedger, damageLedgerMeta),
       ironWallCorrection,
       debuffDurabilityCorrection,
       armorDurabilityCorrection,
@@ -1994,6 +2119,7 @@ function calculateAll({
     baseCompatTroopSoldierStrength,
     expectedRounds,
     ...withTitan,
+    damageLedgerWithoutTitan: withoutTitan.damageLedger,
     // 相性補正を含めた表示値
     heroPower_display,
     heroDurability_display,
