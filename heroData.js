@@ -24,7 +24,7 @@
 //     resolveAsDamage / resolveAsBullets / resolveShieldBuff / resolveOpeningShield / buildTeamCtx
 //
 // ■ エンジンが英雄名ではなく「項目の有無」で拾う設計（英雄名を変更してもエンジンは壊れない）
-//     例：scatterDamage / psVulnerable / asExtraEffect / taunt / psDebuffValue / asDebuff ...
+//     例：scatterDamage / psVulnerableValue / asExtraEffect / taunt / psDebuffValue / asDebuff ...
 //     フラグ：isMagneticHero（磁気英雄カウント）、partyDamageBoost（編成するだけで全体のダメ増減に加算）
 //     ※ 新しい種類の効果を足すときは、既存と別の項目名にすること（同名で形が違うと衝突する）
 //
@@ -172,6 +172,16 @@ const heroData = {
         //   passiveMagneticDamageBonus(ranks, exLv) : 自身のパッシブ磁気ダメージへの加算値（%、単純加算）
         //   globalMagneticBoost(ranks, exLv, ctx)   : 全英雄の磁気ダメージに掛かるグローバル磁気強化への加算値（%）。編成条件ありの場合はctx.teamHeroesで判定
         //   magneticBurningReduction(ranks, exLv)   : 敵の磁気燃焼ダメージ軽減効果への加算値（新規・耐久側効果）
+        //   globalBurningBoost(ranks, exLv, ctx)    : 全英雄の燃焼ダメージに掛かるグローバル燃焼強化への加算値（%）。編成条件ありの場合はctx.teamHeroesで判定
+        //   passiveDirects(ranks, exLv, ctx)        : パッシブ(PS)直接ダメージの配列 [{value, count, rate, skill?}, ...]（期待値 = rate×value×count）
+        //   attachedDirects(ranks, exLv, ctx)       : AS発動のたびに付随する直接ダメージの配列 [{value, count, skill?}, ...]（絶対値ダメージ）
+        //   revengeDamageBonus(ranks, exLv, ctx)    : 復讐1発あたりのダメージ(%)への加算値。採用された復讐がその英雄のときのみ有効
+        //   revengeExtraShots(ranks, exLv, ctx)     : 復讐のmultiplierを確率で加算する追加復讐の配列 [{value, prob, multiplierAdd, skill?}, ...]（value=追加分1発のダメージ%。個数 = 復讐count×multiplierAdd×prob）
+        //   psAdditionalDamageBonus(ranks, exLv, ctx): PS追加ダメージ1発あたりのダメージ(%)への加算値
+        //   psAdditionalMultiplierBonus(ranks, exLv, ctx): PS追加ダメージの multiplier への加算値（期待値。弾数 = count×(multiplier+加算)）
+        //   scatterBaseDamageBonus(ranks, exLv, ctx): 拡散ダメージ(scatterDamage)の baseDamage(%)への加算値
+        //   scatterBulletsBonus(ranks, exLv, ctx)   : 拡散弾数への加算値（期待値、発）
+        //   silenceReduction(ranks, exLv, ctx)      : 被沈黙数(敵から受ける沈黙数)の減少割合の期待値（0〜1）。エンジンは 被沈黙数×(1−値) で適用（複数英雄は掛け合わせ）
         //   reactivation(ranks, exLv)               : スキル再発動の記述（再発動しない場合はnullを返す）
         //     → { condition, triggerRate, damageRatio, reactivateAsEffects } の形のみ、
         //       計算エンジン側での解釈（鉄壁ラウンド判定・発動率補正など）が必要なため、これだけは構造を持つ。
@@ -277,15 +287,11 @@ const heroData = {
         psDebuffCount: (ex) => ex >= 5 ? 4 : 3,
         psDebuffRate: (ex) => ex >= 5 ? 44.4 : 33.3,
         // PSの脆弱付与（1ラウンドに1度、確率11.11%）
+        // ダメージ量は計算エンジンが「平均の直接1発」から算出する（破凱・マゼリアと同じ脆弱ロジック）
         psVulnerableValue: 30,
         psVulnerableCount: (ex) => ex >= 7 ? 4 : 3,
         psVulnerableLossCoef: 0.98,
         psVulnerableTriggerRate: 11.11 / 100,
-        psVulnerableDamage: (ex) => {
-          if (ex >= 7) return 40 + 265 + 200; // 505
-          if (ex >= 5) return 40 + 180 + 139; // 359
-          return 40 + 140 + 115; // 295
-        },
         // グローバル効果
         globalDebuffBoost: (ex) => ex >= 5 ? 40 : 0,
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
@@ -301,17 +307,13 @@ const heroData = {
         // PSの衰弱付与（1ラウンドに1度）
         psDebuffValue: 30,
         psDebuffCount: (ex) => 4,
-        psDebuffRate: (ex) => ex >= 5 ? 44.4 : 33.3,
+        psDebuffRate: (ex) => 44.4,
         // PSの脆弱付与（1ラウンドに1度、確率11.11%）
+        // ダメージ量は計算エンジンが「平均の直接1発」から算出する（破凱・マゼリアと同じ脆弱ロジック）
         psVulnerableValue: (ex) => ex >= 7 ? 40 : 30,
         psVulnerableCount: (ex) => 4,
         psVulnerableLossCoef: 0.98,
         psVulnerableTriggerRate: 11.11 / 100,
-        psVulnerableDamage: (ex) => {
-          if (ex >= 7) return 40 + 265 + 200; // 505
-          if (ex >= 5) return 40 + 180 + 139; // 359
-          return 40 + 140 + 115; // 295
-        },
         // グローバル効果
         globalDebuffBoost: (ex) => ex >= 5 ? 40 : 0,
         globalVulnerableBoost: (ex) => ex >= 5 ? 60 : 0,
@@ -512,7 +514,71 @@ const heroData = {
           multiplier: 2,
           count: ex >= 7 ? 9 : (ex >= 5 ? 9 : 6),
           rate: 0.1111
-        })
+        }),
+        // ===== 覚醒スキル =====
+        // プロパティの意味はミヤの定義コメントを参照（このファイル内で共通の設計）。
+        // ※復讐系の効果は「エンジンが採用した復讐（最大ダメージの1英雄）がこの英雄の場合のみ」有効。
+        awakening: {
+          // スキル1：開戦シールド加算（ランク1以上）＋ 復讐ダメージ加算（ランク6以上）
+          shieldBonus: (ranks, exLv) => {
+            if (!ranks.skill1 || ranks.skill1 <= 0) return 0;
+            const table = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
+            let v = table[ranks.skill1 - 1] || 0;
+            if (exLv >= 7) v *= 1.5;
+            return v;
+          },
+
+          // 復讐ダメージ加算（復讐1発あたりのダメージ%に単純加算。復讐ダメ強化(revengeBoost)はこの後に掛かる）
+          //   スキル1：ランク6以上（専用倍率なし）
+          //   スキル3：立華つむぎとミーチェを同時編成している場合のみ。専7以上で1.5倍
+          //   スキル4：ランク1以上。専7以上で1.5倍
+          revengeDamageBonus: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
+            const exMul = exLv >= 7 ? 1.5 : 1;
+            let total = 0;
+            const s1Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+            total += s1Table[ranks.skill1] || 0;
+            if (ranks.skill3 > 0 && team.includes('立華つむぎ') && team.includes('ミーチェ')) {
+              const s3Table = [0.6, 1.2, 1.8, 2.7, 3.6, 4.8, 6, 7.8, 9.6, 12]; // index: rank-1
+              total += (s3Table[ranks.skill3 - 1] || 0) * exMul;
+            }
+            if (ranks.skill4 > 0) {
+              const s4Table = [0.75, 1.5, 2.25, 3.38, 4.5, 6, 7.5, 9.75, 12, 15]; // index: rank-1
+              total += (s4Table[ranks.skill4 - 1] || 0) * exMul;
+            }
+            return total;
+          },
+          // スキル4：ランク6以上で、54%の確率で復讐の multiplier を+1する（復讐 count × 1 個ぶんの追加復讐）
+          //   ・追加分の復讐は1発あたりのダメージ量が別（ランク依存）なので、通常の復讐とは別枠で計算する
+          //     （復讐ダメージ加算は乗らない。復讐ダメ強化 revengeBoost は掛かる）
+          //   ・追加分の期待個数は復讐ダメ減の個数にも加算される
+          //   ・復讐個数ボーナス(revengeCountBonus)は multiplier の外なので、追加分には含まれない
+          revengeExtraShots: (ranks) => {
+            const table = { 6: 27, 7: 39, 8: 51, 9: 71, 10: 95 };
+            const v = table[ranks.skill4];
+            return v === undefined ? [] : [{ value: v, prob: 0.54, multiplierAdd: 1, skill: 4 }];
+          },
+
+          // PS追加ダメージのダメージ量加算（1発あたりのダメージ%に単純加算）
+          //   スキル2：ランク1以上。専7以上で1.5倍
+          //   スキル3：ランク6以上（条件なし・専用倍率なし）
+          psAdditionalDamageBonus: (ranks, exLv) => {
+            let total = 0;
+            if (ranks.skill2 > 0) {
+              const s2Table = [0.6, 1.2, 1.8, 2.7, 3.6, 4.8, 6, 7.8, 9.6, 12]; // index: rank-1
+              total += (s2Table[ranks.skill2 - 1] || 0) * (exLv >= 7 ? 1.5 : 1);
+            }
+            const s3Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+            total += s3Table[ranks.skill3] || 0;
+            return total;
+          },
+          // スキル2：ランク6以上で、確率でPS追加ダメージの multiplier を+1する（期待値＝確率×1。専用倍率なし）
+          //   例：専5以上(count=9, multiplier=2)で確率100%なら 18発 → 27発
+          psAdditionalMultiplierBonus: (ranks) => {
+            const rateTable = { 6: 9, 7: 18, 8: 27, 9: 42, 10: 60 }; // %
+            return (rateTable[ranks.skill2] || 0) / 100;
+          }
+        }
       },
       'スネークアイズ': {
         type: '陸軍',
@@ -579,12 +645,13 @@ const heroData = {
           return 130 * exclusiveMultipliers[ex] + abnormalBonus;
         },
         asBullets: (ex) => ex >= 7 ? 5 : 3,
-        // PS：毎ターン脆弱属性ダメージ（付与ロス・期待値計算済み）
-        psVulnerable: (ex) => {
-          if (ex >= 7) return { count: 1.5, damage: 14.17 };
-          if (ex >= 5) return { count: 1.5, damage: 7.43 };
-          return { count: 1.0, damage: 8.77 };
-        },
+        // PS脆弱付与（PS属性：ASの発動率・再発動ロジックには干渉しない）
+        // 専5以上：脆弱20% × 3個 ／ 専5未満：脆弱15% × 2個、発動確率50%
+        // ダメージ量は計算エンジンが「平均の直接1発」から算出する（破凱・マゼリアと同じ脆弱ロジック）
+        psVulnerableValue: (ex) => ex >= 5 ? 20 : 15,
+        psVulnerableCount: (ex) => ex >= 5 ? 3 : 2,
+        psVulnerableLossCoef: 0.98,
+        psVulnerableTriggerRate: 50 / 100,
         // ===== 覚醒スキル =====
         // プロパティの意味はミヤの定義コメントを参照（このファイル内で共通の設計）。
         // ctx = { teamHeroes: [同時編成の英雄名...], speedCondition: '同攻速'|'攻速勝ち'|'攻速負け' }
@@ -660,12 +727,13 @@ const heroData = {
           return 130 * exclusiveMultipliers[ex] + abnormalBonus;
         },
         asBullets: (ex) => ex >= 7 ? 5 : 3,
-        // PS：毎ターン脆弱属性ダメージ
-        psVulnerable: (ex) => {
-          if (ex >= 7) return { count: 1.5, damage: 10.63 };
-          if (ex >= 5) return { count: 1.5, damage: 5.57 };
-          return { count: 1.0, damage: 8.77 };
-        }
+        // PS脆弱付与（PS属性：ASの発動率・再発動ロジックには干渉しない）
+        // 脆弱値は専用レベルによらず15%。付与数は専5以上で3個、専5未満で2個、発動確率50%
+        // ダメージ量は計算エンジンが「平均の直接1発」から算出する（破凱・マゼリアと同じ脆弱ロジック）
+        psVulnerableValue: 15,
+        psVulnerableCount: (ex) => ex >= 5 ? 3 : 2,
+        psVulnerableLossCoef: 0.98,
+        psVulnerableTriggerRate: 50 / 100
       },
       'ミーク': {
         type: '海軍',
@@ -704,7 +772,7 @@ const heroData = {
           return { value: (ex >= 5 ? 30 : 15) * exclusiveMultipliers[ex], rate: adjustedRate };
         },
         // AS脆弱付与：脆弱15を4.5発（期待値）
-        asVulnerable: { value: 15, count: 4.5, lossCoef: 0.98 }
+        asVulnerable: { value: 15, count: 4.5, lossCoef: 0.85 }
       },
       'アイリス': {
         type: '海軍',
@@ -799,9 +867,9 @@ const heroData = {
         asRate: 35,
         asDamage: (ex) => 90 * exclusiveMultipliers[ex],
         asBullets: 3,
-        // 拡散ダメ：ASの1発ごとに発動、ASダメ × 40% × 拡散補正 × 2発
+        // 拡散ダメ：ASの1発ごとに発動、基礎ダメージ(baseDamage=40%、絶対値) × 拡散補正 × 弾数
         scatterDamage: {
-          baseRatio: 0.4,
+          baseDamage: 40,
           baseBullets: 2,
           // 専5以上：種類数に応じた追加弾数（合計テーブル[0,1,2,3,4]→[2,2,2,5,6]からbaseBullets=2を引いた追加分）
           conditionalBullets: (ex, shieldTypes) => {
@@ -831,9 +899,9 @@ const heroData = {
         asRate: 35,
         asDamage: (ex) => 95 * exclusiveMultipliers[ex],
         asBullets: 3,
-        // 拡散ダメ：ASの1発ごとに発動、ASダメ × 40% × 拡散補正 × 2発
+        // 拡散ダメ：ASの1発ごとに発動、基礎ダメージ(baseDamage=40%、絶対値) × 拡散補正 × 弾数
         scatterDamage: {
-          baseRatio: 0.4,
+          baseDamage: 40,
           baseBullets: 2,
           // 種類数[0,1,2,3,4]に応じた追加拡散弾数：専7未満[0,0,1,2,3]、専7以上[0,0,1,4,5]
           conditionalBullets: (ex, shieldTypes) => {
@@ -867,10 +935,61 @@ const heroData = {
           if (exLv >= 7) v *= 1.5;
           return v;
         },
-          asDamageBonus: (ranks) => {
-          const table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
-          return table[ranks.skill1] || 0;
-        }
+          // スキル1(ランク6以上)・スキル4(ランク6以上)：ASダメージ加算（すべて期待値で返す）
+          asDamageBonus: (ranks, exLv, ctx) => {
+            let total = 0;
+            const s1Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+            total += s1Table[ranks.skill1] || 0;
+            // スキル4：ランク6〜10で、攻速条件によって確率が変わるASダメージ加算（専用倍率なし）
+            //   確率：攻速勝ち=100% / 同攻速=82% / 攻速負け=76%（ctx未指定は同攻速扱い）
+            const s4Table = { 6: 2.25, 7: 4.5, 8: 6.75, 9: 10.5, 10: 15 };
+            const prob = { '攻速勝ち': 1.0, '同攻速': 0.82, '攻速負け': 0.76 };
+            const m = ctx && ctx.speedCondition;
+            const p = prob[m] !== undefined ? prob[m] : prob['同攻速'];
+            total += (s4Table[ranks.skill4] || 0) * p;
+            return total;
+          },
+
+          // 拡散ダメージの baseDamage（%）への加算。専用倍率ありのものは専7以上で1.5倍
+          //   スキル2：ランク1以上
+          //   スキル3：マリナとアイリスを同時編成している場合のみ
+          //   スキル4：ランク1以上
+          scatterBaseDamageBonus: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
+            const exMul = exLv >= 7 ? 1.5 : 1;
+            let total = 0;
+            if (ranks.skill2 > 0) {
+              const t = [0.5, 1, 1.5, 2.25, 3, 4, 5, 6.5, 8, 10]; // index: rank-1
+              total += (t[ranks.skill2 - 1] || 0) * exMul;
+            }
+            if (ranks.skill3 > 0 && team.includes('マリナ') && team.includes('アイリス')) {
+              const t = [0.6, 1.2, 1.8, 2.7, 3.6, 4.8, 6, 7.8, 9.6, 12]; // index: rank-1
+              total += (t[ranks.skill3 - 1] || 0) * exMul;
+            }
+            if (ranks.skill4 > 0) {
+              const t = [0.75, 1.5, 2.25, 3.38, 4.5, 6, 7.5, 9.75, 12, 15]; // index: rank-1
+              total += (t[ranks.skill4 - 1] || 0) * exMul;
+            }
+            return total;
+          },
+          // 拡散弾数の加算（期待値）：スキル2・スキル3のランク6〜10で、確率で+1（条件なし・専用倍率なし）
+          //   スキル2とスキル3は別々に判定されるので、期待値は両方を足す
+          scatterBulletsBonus: (ranks) => {
+            const rateTable = { 6: 9, 7: 18, 8: 27, 9: 42, 10: 60 }; // %
+            return ((rateTable[ranks.skill2] || 0) + (rateTable[ranks.skill3] || 0)) / 100;
+          },
+
+          // スキル4：被沈黙数の減少（ランク6以上で有効。ランクによる数値変動なし）
+          //   基礎減少割合30%（被沈黙数 ×0.7）が、攻速条件ごとの確率で発動する。
+          //   戻り値は「減少割合の期待値」＝確率 × 0.3（0〜1）。エンジンは 被沈黙数 × (1 − 戻り値) として適用する。
+          //   確率：攻速勝ち=100% / 同攻速=80% / 攻速負け=60%（ctx未指定は同攻速扱い）
+          silenceReduction: (ranks, exLv, ctx) => {
+            if (!ranks.skill4 || ranks.skill4 < 6) return 0;
+            const prob = { '攻速勝ち': 1.0, '同攻速': 0.8, '攻速負け': 0.6 };
+            const m = ctx && ctx.speedCondition;
+            const p = prob[m] !== undefined ? prob[m] : prob['同攻速'];
+            return 0.3 * p;
+          }
         }
       },
       'ルーシィ': {
@@ -885,7 +1004,7 @@ const heroData = {
         asBullets: 3,
         // 拡散ダメ：ASの1発ごとに発動、ASダメ × 30% × 拡散補正 × 2発
         scatterDamage: {
-          baseRatio: 0.3,
+          baseDamage: 30,
           baseBullets: 2
         },
         // 被ダメ減シールド種類数 × 20%（専5で50%）の拡散ダメ加算
@@ -1028,16 +1147,67 @@ const heroData = {
           if (exLv >= 7) v *= 1.5;
           return v;
         },
-          asDamageBonus: (ranks) => {
-          const table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
-          return table[ranks.skill1] || 0;
-        },
+          // スキル1(ランク6以上)・スキル2：ASダメージ加算（すべて期待値で返す）
+          asDamageBonus: (ranks, exLv, ctx) => {
+            const exMul = exLv >= 7 ? 1.5 : 1;
+            let total = 0;
 
-          // スキル3：（未確定の別効果）＋ スキル再発動
+            // スキル1：ランク6以上で解禁
+            const s1Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+            total += s1Table[ranks.skill1] || 0;
+
+            // スキル2：攻速条件で変化する加算。基準値×専用倍率(専7以上1.5倍)×攻速係数
+            //   攻速係数：攻速勝ち=9 / 同攻速=8 / 攻速負け=5.5（ctx未指定は同攻速扱い）
+            if (ranks.skill2 > 0) {
+              const s2Table = [0.2, 0.4, 0.6, 0.9, 1.2, 1.6, 2.0, 2.6, 3.2, 4]; // index: rank-1
+              const speedMul = { '攻速勝ち': 9, '同攻速': 8, '攻速負け': 5.5 };
+              const m = ctx && ctx.speedCondition;
+              const mul = speedMul[m] !== undefined ? speedMul[m] : speedMul['同攻速'];
+              total += (s2Table[ranks.skill2 - 1] || 0) * exMul * mul;
+            }
+            // スキル2：ランク6以上で追加の確率加算（適用確率35%の期待値。専用倍率は掛けない）
+            const s2ExtraTable = { 6: 6, 7: 12, 8: 18, 9: 28, 10: 40 };
+            total += (s2ExtraTable[ranks.skill2] || 0) * 0.35;
+
+            return total;
+          },
+
+          // スキル3：条件付きグローバル燃焼効果強化（全英雄の燃焼に掛かる加算、%）
+          // ★発動条件：リヴィア（神秘）とノルシュを同時編成していること。専7以上で1.5倍
+          globalBurningBoost: (ranks, exLv, ctx) => {
+            if (!ranks.skill3 || ranks.skill3 <= 0) return 0;
+            const team = (ctx && ctx.teamHeroes) || [];
+            if (!(team.includes('リヴィア（神秘）') && team.includes('ノルシュ'))) return 0;
+            const table = [0.75, 1.5, 2.25, 3.38, 4.5, 6, 7.5, 9.75, 12, 15]; // index: rank-1
+            let v = table[ranks.skill3 - 1] || 0;
+            if (exLv >= 7) v *= 1.5;
+            return v;
+          },
+
+          // スキル4：パッシブ直接ダメージ（PS側。1ラウンドに1回の効果なので発動率 1/9）
+          //   1発あたり：基準値×専用倍率(専7以上1.5倍)。弾数は攻速条件で変化：勝ち=0発 / 同攻速=8.2発 / 負け=9発
+          //   ※基準値は10ランク分（ミヤのスキル4と同じ並び）。要確認：依頼文は11個の値だった
+          passiveDirects: (ranks, exLv, ctx) => {
+            if (!ranks.skill4 || ranks.skill4 <= 0) return [];
+            const table = [2, 4, 6, 9, 12, 16, 20, 26, 32, 40]; // index: rank-1
+            const shots = { '攻速勝ち': 0, '同攻速': 8.2, '攻速負け': 9 };
+            const m = ctx && ctx.speedCondition;
+            const count = shots[m] !== undefined ? shots[m] : shots['同攻速'];
+            const exMul = exLv >= 7 ? 1.5 : 1;
+            return [{ value: (table[ranks.skill4 - 1] || 0) * exMul, count: count, rate: 1 / 9, skill: 4 }];
+          },
+          // スキル4：ランク6以上で解禁するAS付随直接ダメージ（AS発動のたびに100%効果。専用倍率なし）
+          //   ダメージ値はランク依存、弾数は 0.5×3 = 1.5発。ASダメージ%ではなく絶対値扱い（ノーラ等のAS倍率は掛けない）
+          attachedDirects: (ranks) => {
+            const table = { 6: 7.5, 7: 15, 8: 22.5, 9: 35, 10: 50 };
+            const v = table[ranks.skill4];
+            return v === undefined ? [] : [{ value: v, count: 0.5 * 3, skill: 4 }];
+          },
+
+          // スキル3：条件付きグローバル燃焼強化（上記 globalBurningBoost）＋ スキル再発動
           // ・再発動はランク6以上で解禁（reactivation 内のテーブルに行があるランクのみ有効）。
           // ・再発動ダメージ割合はランク依存。確率は60%固定。
           // ・AS付随効果（AS付随燃焼など）はダメージ割合の影響を受けず、常に100%効果で再発動する。
-          // 【要編集】スキル3のもう一方の効果は内容未確定。決まり次第、対応するプロパティを追加する。
           reactivation: (ranks) => {
             // ランク6以上で解禁（テーブルに無いランクは再発動なし）
             const damageTable = { 6: 7.5, 7: 15, 8: 22.5, 9: 35, 10: 50 };
