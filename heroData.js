@@ -2,55 +2,86 @@
 // 英雄データ定義ファイル
 // 新英雄を追加する場合はこのファイルのみ編集すればOK
 
+// ==========================================================================
+// 【他ファイルとの連携仕様】（calcEngine.js / index.html はここに書かれた形だけに依存する）
+//
+// ■ 編成コンテキスト ctx（条件付き効果すべてに共通で渡される）
+//     ctx = buildTeamCtx(heroes, buffs) の戻り値。形はこのファイルだけで定義する。
+//       { teamHeroes: ['ソフィ', 'アデル', ...],   // 同時編成の英雄名
+//         speedCondition: '同攻速' | '攻速勝ち' | '攻速負け' }  // SPEED_CONDITIONS と同じ値
+//     ・編成/攻速に依存する効果は、heroData側の関数が ctx を見て自分で判定する。
+//       エンジンは hasXxx の旗を作らない。
+//     ・ctx に項目を足したいときは buildTeamCtx を編集するだけでよい（エンジンは中身を見ない）。
+//     ・ctx が未指定(undefined)でも落ちないこと。条件付き効果は「条件未達」として扱う。
+//
+// ■ 英雄データの条件付きフック（引数はすべて (ex, ctx) 形式。使わない引数は省略可）
+//     asDamage(ex, ctx) / asExtraEffect(ex, ctx) / asBurning(ctx)
+//     psBurning(ex, ctx) / psDamageIncreasePerRound(ex, ctx) / taunt(ex, ctx)
+//     psBurningBoostPerRound(ex, ctx)
+//     awakening.{shieldBonus, asDamageBonus, asBulletsBonus, globalMagneticBoost, ...}(ranks, exLv, ctx)
+//
+// ■ エンジンが参照する統一ヘルパー（このファイル末尾側で定義）
+//     resolveAsDamage / resolveAsBullets / resolveShieldBuff / resolveOpeningShield / buildTeamCtx
+//
+// ■ エンジンが英雄名ではなく「項目の有無」で拾う設計（英雄名を変更してもエンジンは壊れない）
+//     例：scatterDamage / psVulnerable / asExtraEffect / taunt / psDebuffValue / asDebuff ...
+//     フラグ：isMagneticHero（磁気英雄カウント）、partyDamageBoost（編成するだけで全体のダメ増減に加算）
+//     ※ 新しい種類の効果を足すときは、既存と別の項目名にすること（同名で形が違うと衝突する）
+//
+// ■ 覚醒スキルのランクは ranks = { skill1, skill2, skill3, skill4 }（各0～10）
+//
+// ■ index.html が参照するもの
+//     heroData（英雄名一覧・type・awakeningCapable）、SPEED_CONDITIONS
+// ==========================================================================
+
+// 攻速条件の選択肢（UIのボタン表示と、ctx.speedCondition の値の唯一の定義）
+const SPEED_CONDITIONS = ['攻速勝ち', '同攻速', '攻速負け'];
+
+// 編成コンテキストの組み立て（形の唯一の定義）。エンジンはこれを呼ぶだけ。
+function buildTeamCtx(heroes, buffs) {
+  return {
+    teamHeroes: (heroes || []).map(h => h.name),
+    speedCondition: buffs ? buffs.speedCondition : undefined
+  };
+}
+
 const exclusiveMultipliers = { 0: 1.0, 3: 1.1, 5: 1.21, 7: 1.34 };
 
-// ===== 覚醒スキル3「再発動」共通設定（ミヤ・ルチル共有） =====
-// スキルランク → 再発動時のASダメージ割合(%)。
-// 【重要】このテーブルに存在しないランク（ランク5以下）は「再発動が解禁されていない」扱いになる。
-// 解禁ランクや割合を変えたい場合は、このテーブルの行を増減・編集するだけでよい。
-const AWAKENING_SKILL3_REACTIVATION_DAMAGE = {
-  6: 7.5,
-  7: 15,
-  8: 22.5,
-  9: 35,
-  10: 50
-};
-// 再発動の確率(%)：ランクによらず固定
-const AWAKENING_SKILL3_REACTIVATION_RATE = 60;
-
-// ===== 覚醒スキル1「開戦シールド加算＋ASダメージ加算」共通ロジック =====
-// ミヤ・ソフィ・ピスカ・ルチルの覚醒スキル1で共有する。
-// ・開戦シールド加算：ランク1以上、専7以上で1.5倍
-// ・ASダメージ加算：ランク6以上で解禁
-// どちらも専用倍率(exclusiveMultipliers)とは無関係の単純加算値。
-const AWAKENING_SKILL1_SHIELD_TABLE = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
-const AWAKENING_SKILL1_AS_DAMAGE_TABLE = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
-function awakeningSkill1Shield(rank, exLv) {
-  if (!rank || rank <= 0) return 0;
-  let v = AWAKENING_SKILL1_SHIELD_TABLE[rank - 1] || 0;
-  if (exLv >= 7) v *= 1.5;
-  return v;
-}
-function awakeningSkill1AsDamage(rank) {
-  return AWAKENING_SKILL1_AS_DAMAGE_TABLE[rank] || 0;
-}
+// ※覚醒スキルの効果値テーブルは「共通定義」を持たず、各英雄の awakening 内で都度定義する。
+//   （英雄ごとに能力の細分化・条件追加が必要になっても、他の英雄に影響しないようにするため）
 
 // ===== ASダメージ取得の統一ヘルパー =====
-// data.asDamage は英雄によって (ex) や (ex, hasAbnormalCombo) など引数が異なるため、
+// data.asDamage は (ex, ctx) の形で呼び出す（ctxを使わない英雄は第2引数を無視するだけ）。
 // ここで一本化して呼び出す。また、覚醒スキルによるASダメージ加算（data.awakening.asDamageBonus）
 // も「同じ場所」で足し込んでおくことで、AS本体・全軍突撃・拡散ダメージ・スキル再発動など
 // asDamageを使う計算エンジン側の全箇所に、加算後の値が自動的に伝播する。
 // awakeningRanks は覚醒OFF時や非対応英雄の場合は null を渡せばよい（その場合は加算なし）。
-function resolveAsDamage(data, exLv, awakeningRanks, extraArg) {
+// ctx（編成・攻速の文脈）は【全ての条件付き効果で共通の受け渡し形式】。
+// 英雄ごとの関数は (ex, ctx) 形式で受け取り、編成判定は heroData 側で行う（エンジンは旗を作らない）：
+//   { teamHeroes: ['アデル', ...],            // 同時編成している英雄名の配列
+//     speedCondition: '同攻速'|'攻速勝ち'|'攻速負け' } // buffs.speedCondition と同じ値
+// ctx 未指定の場合、編成条件付きの効果は「条件未達」として0扱い、攻速は '同攻速' 扱いになる。
+function resolveAsDamage(data, exLv, awakeningRanks, ctx) {
   if (!data || typeof data.asDamage === 'undefined') return 0;
   let base;
   if (typeof data.asDamage === 'function') {
-    base = data.asDamage.length >= 2 ? data.asDamage(exLv, extraArg) : data.asDamage(exLv);
+    base = data.asDamage(exLv, ctx);
   } else {
     base = data.asDamage || 0;
   }
   if (awakeningRanks && data.awakening && data.awakening.asDamageBonus) {
-    base += data.awakening.asDamageBonus(awakeningRanks, exLv) || 0;
+    base += data.awakening.asDamageBonus(awakeningRanks, exLv, ctx) || 0;
+  }
+  return base;
+}
+
+// ===== AS弾数取得の統一ヘルパー =====
+// 覚醒スキルによる「AS弾数の期待値加算」（data.awakening.asBulletsBonus）を同じ場所で足し込む。
+function resolveAsBullets(data, exLv, awakeningRanks, ctx) {
+  if (!data || typeof data.asBullets === 'undefined') return 0;
+  let base = typeof data.asBullets === 'function' ? data.asBullets(exLv) : (data.asBullets || 0);
+  if (awakeningRanks && data.awakening && data.awakening.asBulletsBonus) {
+    base += data.awakening.asBulletsBonus(awakeningRanks, exLv, ctx) || 0;
   }
   return base;
 }
@@ -79,15 +110,22 @@ const heroData = {
         type: '汎用'
       },
       'ペトラ': {
+        isMagneticHero: true,  // 磁気英雄の同時編成数カウント（アカネのAS拡散計算用）
         type: '陸軍',
         attackBuff: (ex) => 100 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => ex >= 7 ? 120 : 70,
         asRate: 37,
         asDamage: (ex) => 60 * exclusiveMultipliers[ex],
         asBullets: (ex) => ex >= 5 ? 5 : 4,
-        asExtraEffect: (ex, hasCombo) => hasCombo ? { damage: 50, bullets: (ex >= 5 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null
+        asExtraEffect: (ex, ctx) => {
+          // ペトラ/フランカ と ミヤ/クラリス の同時編成で発動
+          const team = (ctx && ctx.teamHeroes) || [];
+          const hasCombo = (team.includes('ペトラ') || team.includes('フランカ')) && (team.includes('ミヤ') || team.includes('クラリス'));
+          return hasCombo ? { damage: 50, bullets: (ex >= 5 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null;
+        }
       },
       'フランカ': {
+        isMagneticHero: true,  // 磁気英雄の同時編成数カウント（アカネのAS拡散計算用）
         type: '陸軍',
         attackBuff: (ex) => 115 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => {
@@ -97,7 +135,12 @@ const heroData = {
         asRate: 37,
         asDamage: (ex) => 70 * exclusiveMultipliers[ex],
         asBullets: (ex) => ex >= 7 ? 5 : 4,  // 専7以上で5発、それ以下で4発
-        asExtraEffect: (ex, hasCombo) => hasCombo ? { damage: 50, bullets: (ex >= 7 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null
+        asExtraEffect: (ex, ctx) => {
+          // ペトラ/フランカ と ミヤ/クラリス の同時編成で発動
+          const team = (ctx && ctx.teamHeroes) || [];
+          const hasCombo = (team.includes('ペトラ') || team.includes('フランカ')) && (team.includes('ミヤ') || team.includes('クラリス'));
+          return hasCombo ? { damage: 50, bullets: (ex >= 7 ? 5 : 4) * 0.5 * 1.5, type: 'magnetic' } : null;
+        }
       },
       'ミヤ': {
         type: '陸軍',
@@ -119,23 +162,33 @@ const heroData = {
         // エンジン側は「このプロパティ名が存在すれば、対応する場所に加算する」というだけの
         // 単純な参照処理しか持たない（type別の分岐処理などは持たない）。
         //
-        // 引数の (ranks, exLv) の ranks は { lv1, lv2, lv3, lv4 } で、各覚醒スキルのランク(0～10)。
+        // 引数の (ranks, exLv) の ranks は { skill1, skill2, skill3, skill4 } で、各覚醒スキルのランク(0～10)。
         //
         // 各プロパティ一覧：
         //   shieldBonus(ranks, exLv)               : 開戦シールドへの加算値（%、単純加算）
-        //   asDamageBonus(ranks, exLv)              : ASダメージへの加算値（%、単純加算）
-        //   attachedMagnetics(ranks, exLv)          : AS発動のたびに付随する磁気ダメージの配列 [{value, count}, ...]
+        //   asDamageBonus(ranks, exLv, ctx)         : ASダメージへの加算値（%、期待値込み）。ctx = { teamHeroes, speedCondition }
+        //   asBulletsBonus(ranks, exLv, ctx)        : AS弾数への加算値（期待値、発）
+        //   attachedMagnetics(ranks, exLv)          : AS発動のたびに付随する磁気ダメージの配列 [{value, count, skill?}, ...]（skillは台帳表示用のスキル番号）
         //   passiveMagneticDamageBonus(ranks, exLv) : 自身のパッシブ磁気ダメージへの加算値（%、単純加算）
-        //   globalMagneticBoost(ranks, exLv)        : 全英雄の磁気ダメージに掛かるグローバル磁気強化への加算値（%）
+        //   globalMagneticBoost(ranks, exLv, ctx)   : 全英雄の磁気ダメージに掛かるグローバル磁気強化への加算値（%）。編成条件ありの場合はctx.teamHeroesで判定
         //   magneticBurningReduction(ranks, exLv)   : 敵の磁気燃焼ダメージ軽減効果への加算値（新規・耐久側効果）
         //   reactivation(ranks, exLv)               : スキル再発動の記述（再発動しない場合はnullを返す）
         //     → { condition, triggerRate, damageRatio, reactivateAsEffects } の形のみ、
         //       計算エンジン側での解釈（鉄壁ラウンド判定・発動率補正など）が必要なため、これだけは構造を持つ。
         awakening: {
           // スキル1：開戦シールド加算（ランク1以上）＋ ASダメージ加算（ランク6以上）
-          // ソフィ・ピスカ・ルチルと共通ロジック（AWAKENING_SKILL1_*）を使用
-          shieldBonus: (ranks, exLv) => awakeningSkill1Shield(ranks.lv1, exLv),
-          asDamageBonus: (ranks) => awakeningSkill1AsDamage(ranks.lv1),
+          // （この英雄専用の定義。他英雄とは共有しない）
+          shieldBonus: (ranks, exLv) => {
+          if (!ranks.skill1 || ranks.skill1 <= 0) return 0;
+          const table = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
+          let v = table[ranks.skill1 - 1] || 0;
+          if (exLv >= 7) v *= 1.5;
+          return v;
+        },
+          asDamageBonus: (ranks) => {
+          const table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+          return table[ranks.skill1] || 0;
+        },
 
           // スキル2：AS付随磁気の解禁（ランク1以上）＋ 磁気燃焼ダメージ軽減（ランク6以上）
           // ・AS付随磁気の弾数は専7以上で6発、専6以下で4発（ランクには依存しない）
@@ -143,38 +196,42 @@ const heroData = {
           attachedMagnetics: (ranks, exLv) => {
             const list = [];
             const magneticTable = [22, 24, 26, 29, 32, 36, 40, 46, 52, 60];
-            if (ranks.lv2 > 0) {
-              list.push({ value: magneticTable[ranks.lv2 - 1] || 0, count: exLv >= 7 ? 6 : 4 });
+            if (ranks.skill2 > 0) {
+              list.push({ value: magneticTable[ranks.skill2 - 1] || 0, count: exLv >= 7 ? 6 : 4, skill: 2 });
             }
             // スキル4：ランク6以上で解禁する新規AS付随磁気（弾数4固定・別枠）
             const extraMagneticTable = { 6: 26, 7: 32, 8: 38, 9: 48, 10: 60 };
-            if (extraMagneticTable[ranks.lv4] !== undefined) {
-              list.push({ value: extraMagneticTable[ranks.lv4], count: 4 });
+            if (extraMagneticTable[ranks.skill4] !== undefined) {
+              list.push({ value: extraMagneticTable[ranks.skill4], count: 4, skill: 4 });
             }
             return list;
           },
           magneticBurningReduction: (ranks) => {
             const table = { 6: 3.75, 7: 7.5, 8: 11.25, 9: 17.5, 10: 25 };
-            return table[ranks.lv2] || 0;
+            return table[ranks.skill2] || 0;
           },
 
           // スキル3：グローバル磁気効果強化（ランク1以上）＋ スキル再発動の解禁（ランク6以上）
           // ・グローバル磁気効果強化は専7以上で1.5倍
-          // ・再発動の確率・ダメージ割合は共通テーブル（AWAKENING_SKILL3_REACTIVATION_DAMAGE/RATE）を参照
-          //   → ルチルの覚醒スキル3と数値を共有している
-          globalMagneticBoost: (ranks, exLv) => {
-            if (!ranks.lv3 || ranks.lv3 <= 0) return 0;
+          // ・再発動の確率・ダメージ割合はこの英雄内で定義（ルチルとは共有しない）
+          // ★発動条件：フランカとルネを同時編成していること（ctx.teamHeroes に両方含まれる場合のみ）
+          globalMagneticBoost: (ranks, exLv, ctx) => {
+            if (!ranks.skill3 || ranks.skill3 <= 0) return 0;
+            const team = (ctx && ctx.teamHeroes) || [];
+            if (!(team.includes('フランカ') && team.includes('ルネ'))) return 0;
             const table = [2.5, 5, 7.5, 11.25, 15, 20, 25, 32.5, 40, 50];
-            let v = table[ranks.lv3 - 1] || 0;
+            let v = table[ranks.skill3 - 1] || 0;
             if (exLv >= 7) v *= 1.5;
             return v;
           },
           reactivation: (ranks) => {
-            const damageRatio = AWAKENING_SKILL3_REACTIVATION_DAMAGE[ranks.lv3];
+            // ランク6以上で解禁（テーブルに無いランクは再発動なし）
+            const damageTable = { 6: 7.5, 7: 15, 8: 22.5, 9: 35, 10: 50 };
+            const damageRatio = damageTable[ranks.skill3];
             if (damageRatio === undefined) return null;
             return {
               condition: 'ironWallActive',                    // 鉄壁が有効なラウンド
-              triggerRate: AWAKENING_SKILL3_REACTIVATION_RATE, // 再発動確率(%)：60%固定
+              triggerRate: 60,                                 // 再発動確率(%)：60%固定
               damageRatio: damageRatio,                        // 再発動ASダメージ割合(%)：ランク依存
               reactivateAsEffects: true                        // AS付随効果（付随磁気・付随燃焼）は100%で再発動
             };
@@ -182,10 +239,12 @@ const heroData = {
 
           // スキル4：パッシブ磁気ダメージ加算（ランク1以上）
           // ・専7以上で1.5倍。ランク6以上のAS付随磁気は attachedMagnetics 側にまとめてある
+          // ※台帳の表示用：この加算が属するスキル番号（任意。無ければ番号なしで表示）
+          passiveMagneticSkill: 4,
           passiveMagneticDamageBonus: (ranks, exLv) => {
-            if (!ranks.lv4 || ranks.lv4 <= 0) return 0;
+            if (!ranks.skill4 || ranks.skill4 <= 0) return 0;
             const table = [2, 4, 6, 9, 12, 16, 20, 26, 32, 40];
-            let v = table[ranks.lv4 - 1] || 0;
+            let v = table[ranks.skill4 - 1] || 0;
             if (exLv >= 7) v *= 1.5;
             return v;
           }
@@ -286,6 +345,7 @@ const heroData = {
         magneticBulletsBonus: (ex) => ex >= 7 ? 1.0 : 0.5
       },
       'アカネ': {
+        isMagneticHero: true,  // 磁気英雄の同時編成数カウント（アカネのAS拡散計算用）
         type: '陸軍',
         attackBuff: (ex) => 95 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => ex >= 3 ? 110 : 20,
@@ -316,13 +376,14 @@ const heroData = {
         // 脆弱の敵にAS命中時のダメージ変化（確率：脆弱数期待値／直接攻撃弾数期待値）
         asVulnerableBonus: 190,
         // PS脆弱付与（専5以上で1ラウンドに1度）
-        psVulnerable: (ex) => {
+        psVulnerableFromDirect: (ex) => {
           if (ex < 5) return null;
           const count = ex >= 7 ? 4 : 2;
           return { value: 30, count: count, rate: 0.11 };
         }
       },
       'フェルム': {
+        isMagneticHero: true,  // 磁気英雄の同時編成数カウント（アカネのAS拡散計算用）
         type: '陸軍',
         attackBuff: (ex) => 90 * exclusiveMultipliers[ex],
         magneticBoost: (ex) => {
@@ -505,11 +566,14 @@ const heroData = {
       },
       'ソフィ': {
         type: '海軍',
+        partyDamageBoost: 20,  // 編成するだけでダメ増・ダメ減に各+20%（複数いても重複しない）
         awakeningCapable: true,
         shieldBuff: (ex) => 66 * exclusiveMultipliers[ex],
         asRate: 35,
-        asDamage: (ex, hasAbnormalCombo) => {
-          // 異常特攻: 状態異常種類数 × 特攻倍率
+        asDamage: (ex, ctx) => {
+          // 異常特攻: 状態異常種類数 × 特攻倍率（アイリス/ミーク/マゼリアのいずれかと同時編成で1.3種）
+          const team = (ctx && ctx.teamHeroes) || [];
+          const hasAbnormalCombo = team.includes('アイリス') || team.includes('ミーク') || team.includes('マゼリア');
           const abnormalTypes = hasAbnormalCombo ? 1.3 : 0.4;
           const abnormalBonus = (ex >= 7 ? 25 : ex >= 5 ? 15 : 10) * Math.min(abnormalTypes, 3);
           return 130 * exclusiveMultipliers[ex] + abnormalBonus;
@@ -522,18 +586,76 @@ const heroData = {
           return { count: 1.0, damage: 8.77 };
         },
         // ===== 覚醒スキル =====
-        // スキル1：開戦シールド加算（ランク1以上）＋ ASダメージ加算（ランク6以上）
-        // ミヤ・ピスカ・ルチルと共通ロジック（AWAKENING_SKILL1_*）を使用
+        // プロパティの意味はミヤの定義コメントを参照（このファイル内で共通の設計）。
+        // ctx = { teamHeroes: [同時編成の英雄名...], speedCondition: '同攻速'|'攻速勝ち'|'攻速負け' }
         awakening: {
-          shieldBonus: (ranks, exLv) => awakeningSkill1Shield(ranks.lv1, exLv),
-          asDamageBonus: (ranks) => awakeningSkill1AsDamage(ranks.lv1)
+          // スキル1：開戦シールド加算（ランク1以上）＋ ASダメージ加算（ランク6以上）
+          // （この英雄専用の定義。他英雄とは共有しない）
+          shieldBonus: (ranks, exLv) => {
+            if (!ranks.skill1 || ranks.skill1 <= 0) return 0;
+            const table = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
+            let v = table[ranks.skill1 - 1] || 0;
+            if (exLv >= 7) v *= 1.5;
+            return v;
+          },
+
+          // スキル2：確率でAS弾数+1（ランク1以上）＋ 磁気燃焼ダメージ軽減（ランク6以上）
+          // ・確率(%)はランク依存、専7以上で1.5倍。「+1発 × 確率」の期待値をAS弾数に加算する。
+          //   例：ランク10・専6以下 → +0.6発 ／ ランク10・専7以上 → +0.9発
+          asBulletsBonus: (ranks, exLv) => {
+            if (!ranks.skill2 || ranks.skill2 <= 0) return 0;
+            const rateTable = [3, 6, 9, 13.5, 18, 24, 30, 39, 48, 60]; // %、index: rank-1
+            let rate = rateTable[ranks.skill2 - 1] || 0;
+            if (exLv >= 7) rate *= 1.5;
+            return Math.min(rate, 100) / 100;
+          },
+          // ・ミヤと同様の磁気燃焼ダメージ軽減（ランク6以上で解禁、専用倍率とは無関係）
+          magneticBurningReduction: (ranks) => {
+            const table = { 6: 3.75, 7: 7.5, 8: 11.25, 9: 17.5, 10: 25 };
+            return table[ranks.skill2] || 0;
+          },
+
+          // スキル1(ランク6以上)・スキル3・スキル4：ASダメージ加算（すべて期待値で返す）
+          asDamageBonus: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
+            const exMul = exLv >= 7 ? 1.5 : 1;
+            let total = 0;
+
+            // スキル1：ランク6以上で解禁
+            const s1Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+            total += s1Table[ranks.skill1] || 0;
+
+            // スキル3：アデルとマゼリアを同時編成している場合のみ。専7以上で1.5倍
+            if (ranks.skill3 > 0 && team.includes('アデル') && team.includes('マゼリア')) {
+              const s3Table = [0.75, 1.5, 2.25, 3.38, 4.5, 6, 7.5, 9.75, 12, 15]; // index: rank-1
+              total += (s3Table[ranks.skill3 - 1] || 0) * exMul;
+            }
+            // スキル3：ランク6以上で追加の確率加算（適用確率35%の期待値。専用倍率は掛けない）
+            const s3ExtraTable = { 6: 3, 7: 6, 8: 9, 9: 14, 10: 20 };
+            total += (s3ExtraTable[ranks.skill3] || 0) * 0.35;
+
+            // スキル4：アデル／ノーラ／ツバキのいずれかを同時編成している場合のみ。専7以上で1.5倍
+            //   適用確率は攻速関係で変動：同攻速=(3/9)/2、高速勝ち=3/9、高速負け=0/9
+            if (ranks.skill4 > 0 && (team.includes('アデル') || team.includes('ノーラ') || team.includes('ツバキ'))) {
+              const s4Table = [2, 4, 6, 9, 12, 16, 20, 26, 32, 40]; // index: rank-1
+              const speedRate = { '同攻速': (3 / 9) / 2, '攻速勝ち': 3 / 9, '攻速負け': 0 };
+              const m = ctx && ctx.speedCondition;
+              const rate = speedRate[m] !== undefined ? speedRate[m] : speedRate['同攻速'];
+              total += (s4Table[ranks.skill4 - 1] || 0) * exMul * rate;
+            }
+            // スキル4：ランク6以上で追加の確率加算（90%の期待値。専用倍率は掛けない）
+            const s4ExtraTable = { 6: 3, 7: 6, 8: 9, 9: 14, 10: 20 };
+            total += (s4ExtraTable[ranks.skill4] || 0) * 0.9;
+
+            return total;
+          }
         }
       },
       'ヒヨリ': {
         type: '海軍',
         shieldBuff: (ex) => 65 * exclusiveMultipliers[ex],
         asRate: 35,
-        asDamage: (ex, hasAbnormalCombo) => {
+        asDamage: (ex) => {
           const abnormalBonus = ex >= 7 ? 50 : ex >= 5 ? 30 : 10;
           return 130 * exclusiveMultipliers[ex] + abnormalBonus;
         },
@@ -736,10 +858,19 @@ const heroData = {
         lightArmorRate: (ex) => ex >= 5 ? 0.6 : 0.4,
         // ===== 覚醒スキル =====
         // スキル1：開戦シールド加算（ランク1以上）＋ ASダメージ加算（ランク6以上）
-        // ミヤ・ソフィ・ルチルと共通ロジック（AWAKENING_SKILL1_*）を使用
+        // （この英雄専用の定義。他英雄とは共有しない）
         awakening: {
-          shieldBonus: (ranks, exLv) => awakeningSkill1Shield(ranks.lv1, exLv),
-          asDamageBonus: (ranks) => awakeningSkill1AsDamage(ranks.lv1)
+          shieldBonus: (ranks, exLv) => {
+          if (!ranks.skill1 || ranks.skill1 <= 0) return 0;
+          const table = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
+          let v = table[ranks.skill1 - 1] || 0;
+          if (exLv >= 7) v *= 1.5;
+          return v;
+        },
+          asDamageBonus: (ranks) => {
+          const table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+          return table[ranks.skill1] || 0;
+        }
         }
       },
       'ルーシィ': {
@@ -782,16 +913,19 @@ const heroData = {
           return { value: 30, count: 1, rate };
         },
         // PS燃焼：ミスティ/アスカと同時編成では発動しない
-        psBurning: (ex, speedCondition, hasMisty, hasAsuka) => {
-          if (hasMisty || hasAsuka) return null;
-          if (speedCondition !== '同攻速') return null;
+        psBurning: (ex, ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          if (team.includes('ミスティ') || team.includes('アスカ')) return null;
+          if (!ctx || ctx.speedCondition !== '同攻速') return null;
           const rate = ex >= 5 ? 0.90 : 0.85;
           const value = ex >= 5 ? 120 : 30;
           return { rate, value, count: 1 };
         },
         // PSダメ増バフ：ミスティ/アスカと同時編成では発動しない
-        psDamageIncreasePerRound: (ex, speedCondition, hasMisty, hasAsuka) => {
-          if (hasMisty || hasAsuka) return null;
+        psDamageIncreasePerRound: (ex, ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          const speedCondition = ctx && ctx.speedCondition;
+          if (team.includes('ミスティ') || team.includes('アスカ')) return null;
           
           let baseValues;
           if (ex >= 7) baseValues = [100, 275, 300, 300];
@@ -822,16 +956,19 @@ const heroData = {
           return { value: 30, count: 3, rate };  // 専0-4: 30% × 3発（リヴィアは1発）
         },
         // PS燃焼：ミスティ/アスカと同時編成では発動しない
-        psBurning: (ex, speedCondition, hasMisty, hasAsuka) => {
-          if (hasMisty || hasAsuka) return null;
-          if (speedCondition !== '同攻速') return null;
+        psBurning: (ex, ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          if (team.includes('ミスティ') || team.includes('アスカ')) return null;
+          if (!ctx || ctx.speedCondition !== '同攻速') return null;
           const rate = ex >= 5 ? 0.90 : 0.85;
           const value = ex >= 7 ? 130 : (ex >= 5 ? 120 : 30);  // 専7: 130%
           return { rate, value, count: 1 };
         },
         // PSダメ増バフ：専5以上でリヴィア専7相当
-        psDamageIncreasePerRound: (ex, speedCondition, hasMisty, hasAsuka) => {
-          if (hasMisty || hasAsuka) return null;
+        psDamageIncreasePerRound: (ex, ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          const speedCondition = ctx && ctx.speedCondition;
+          if (team.includes('ミスティ') || team.includes('アスカ')) return null;
           
           let baseValues;
           if (ex >= 5) baseValues = [100, 275, 300, 300];  // 専5以上：リヴィア専7相当
@@ -860,7 +997,12 @@ const heroData = {
         asBurning: { value: 30, count: 3 },
         // PS燃焼強化：グローバル効果、ラウンドごと
         // リヴィア/ユズハ/ノルシュ/リヴィア（神秘）との同時編成時に完全な値を返す
-        psBurningBoostPerRound: (ex, hasRivvia, hasYuzuha, hasNorshu, hasNewRivvia) => {
+        psBurningBoostPerRound: (ex, ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          const hasRivvia = team.includes('リヴィア');
+          const hasYuzuha = team.includes('ユズハ');
+          const hasNorshu = team.includes('ノルシュ');
+          const hasNewRivvia = team.includes('リヴィア（神秘）');
           const base = [0, 10, 15, 15];
           if (ex >= 5) {
             const boosted = base.map(v => v * 4);
@@ -878,21 +1020,32 @@ const heroData = {
         // プロパティの意味はミヤの定義コメントを参照（このファイル内で共通の設計）。
         awakening: {
           // スキル1：開戦シールド加算（ランク1以上）＋ ASダメージ加算（ランク6以上）
-          // ミヤ・ソフィ・ピスカと共通ロジック（AWAKENING_SKILL1_*）を使用
-          shieldBonus: (ranks, exLv) => awakeningSkill1Shield(ranks.lv1, exLv),
-          asDamageBonus: (ranks) => awakeningSkill1AsDamage(ranks.lv1),
+          // （この英雄専用の定義。他英雄とは共有しない）
+          shieldBonus: (ranks, exLv) => {
+          if (!ranks.skill1 || ranks.skill1 <= 0) return 0;
+          const table = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
+          let v = table[ranks.skill1 - 1] || 0;
+          if (exLv >= 7) v *= 1.5;
+          return v;
+        },
+          asDamageBonus: (ranks) => {
+          const table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+          return table[ranks.skill1] || 0;
+        },
 
           // スキル3：（未確定の別効果）＋ スキル再発動
-          // ・再発動はランク6以上で解禁（AWAKENING_SKILL3_REACTIVATION_DAMAGE に行があるランクのみ有効）。
-          // ・再発動ダメージ割合はランク依存（同テーブル、ミヤと共有）。確率は60%固定。
+          // ・再発動はランク6以上で解禁（reactivation 内のテーブルに行があるランクのみ有効）。
+          // ・再発動ダメージ割合はランク依存。確率は60%固定。
           // ・AS付随効果（AS付随燃焼など）はダメージ割合の影響を受けず、常に100%効果で再発動する。
           // 【要編集】スキル3のもう一方の効果は内容未確定。決まり次第、対応するプロパティを追加する。
           reactivation: (ranks) => {
-            const damageRatio = AWAKENING_SKILL3_REACTIVATION_DAMAGE[ranks.lv3];
+            // ランク6以上で解禁（テーブルに無いランクは再発動なし）
+            const damageTable = { 6: 7.5, 7: 15, 8: 22.5, 9: 35, 10: 50 };
+            const damageRatio = damageTable[ranks.skill3];
             if (damageRatio === undefined) return null;
             return {
               condition: 'ironWallActive',
-              triggerRate: AWAKENING_SKILL3_REACTIVATION_RATE,
+              triggerRate: 60, // 再発動確率(%)：60%固定
               damageRatio: damageRatio,
               reactivateAsEffects: true
             };
@@ -950,8 +1103,11 @@ const heroData = {
         // 開幕スキル（専5以上）：ラウンドごと（11.1%発動率）50%燃焼×3
         openingBurning: (ex) => ex >= 5 ? { value: 50, count: 3, rate: 0.111 } : null,
         // 挑発効果（R1とR2のみ有効）
-        taunt: (ex, speedCondition, hasMisty, hasAsuka) => {
-          if (speedCondition !== '同攻速') return null;
+        taunt: (ex, ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          const hasMisty = team.includes('ミスティ');
+          const hasAsuka = team.includes('アスカ');
+          if (!ctx || ctx.speedCondition !== '同攻速') return null;
           let tauntCount = 6;
           if (ex >= 7) tauntCount = 18;
           else if (ex >= 5) tauntCount = 9;
@@ -977,6 +1133,7 @@ const heroData = {
         }
       },
       'アスカ': {
+        isMagneticHero: true,  // 磁気英雄の同時編成数カウント（アカネのAS拡散計算用）
         type: '汎用',
         attackBuff: (ex) => 40 * exclusiveMultipliers[ex] * (2/3) * 1.1,
         shieldBuff: (ex) => {
@@ -1002,8 +1159,9 @@ const heroData = {
         },
         asBullets: 9,
         // AS付随燃焼：30%燃焼を3発（ユズハやノルシュと同時編成時は8発）
-        asBurning: (hasYuzuha, hasNorshu) => {
-          const count = (hasYuzuha || hasNorshu) ? 8 : 3;
+        asBurning: (ctx) => {
+          const team = (ctx && ctx.teamHeroes) || [];
+          const count = (team.includes('ユズハ') || team.includes('ノルシュ')) ? 8 : 3;
           return { value: 30, count: count };
         },
         // PS開幕燃焼：11.11%の確率で50%燃焼を3発

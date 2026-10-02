@@ -201,9 +201,18 @@
     const AWAKENING_SKILL_LABELS = ['覚醒スキル1', '覚醒スキル2', '覚醒スキル3', '覚醒スキル4'];
 
     // 英雄1体分の覚醒初期状態（スキル4つ、すべてレベル0）
-    const getDefaultAwakening = () => ({
-      lv1: 0, lv2: 0, lv3: 0, lv4: 0
-    });
+    // スキルのキーは skill1～skill4（heroData.js の ranks.skillN と対応）
+    const AWAKENING_SKILL_KEYS = Array.from({ length: AWAKENING_SKILL_COUNT }, (_, idx) => `skill${idx + 1}`);
+    const getDefaultAwakening = () => Object.fromEntries(AWAKENING_SKILL_KEYS.map(k => [k, 0]));
+    // 保存データの読み込み用：旧キー(lv1～lv4)も skill1～skill4 に移行し、範囲外の値は丸める
+    const normalizeAwakening = (a) => {
+      const out = getDefaultAwakening();
+      AWAKENING_SKILL_KEYS.forEach((key, idx) => {
+        const raw = a ? (a[key] !== undefined ? a[key] : a[`lv${idx + 1}`]) : 0;
+        out[key] = Math.max(0, Math.min(AWAKENING_SKILL_MAX_RANK, parseInt(raw) || 0));
+      });
+      return out;
+    };
 
     // ===== ダメージ台帳ビュー =====
     // calcEngine.js が返す calculations.damageLedger を表示する。
@@ -639,7 +648,7 @@
         if (state.titanEquip) setTitanEquip(state.titanEquip);
         // 古い保存データ（覚醒実装前）にはawakeningが存在しないため、その場合は英雄数分の初期値で補完
         if (state.awakening) {
-          setAwakening(state.awakening);
+          setAwakening(Array.isArray(state.awakening) ? state.awakening.map(normalizeAwakening) : state.heroes ? state.heroes.map(() => getDefaultAwakening()) : state.awakening);
         } else if (state.heroes) {
           setAwakening(state.heroes.map(() => getDefaultAwakening()));
         }
@@ -1060,7 +1069,7 @@
                   <div className="form-group">
                     <label className="form-label">攻速条件</label>
                     <div className="compatibility-buttons">
-                      {['攻速勝ち', '同攻速', '攻速負け'].map(speed => (
+                      {SPEED_CONDITIONS.map(speed => (
                         <button
                           key={speed}
                           onClick={() => updateBuff('speedCondition', speed)}
@@ -1604,7 +1613,7 @@
                           {expandedAwakeningHeroes[heroIdx] && (
                             <div className="space-y-3">
                               {AWAKENING_SKILL_LABELS.map((label, skillIdx) => {
-                                const skillKey = `lv${skillIdx + 1}`;
+                                const skillKey = AWAKENING_SKILL_KEYS[skillIdx];
                                 const currentValue = awakening[heroIdx]?.[skillKey] ?? 0;
                                 return (
                                   <div key={skillIdx} className="awakening-skill-row">
@@ -1770,7 +1779,15 @@
                   </div>
                   </div>
 
-                  {/* さらに詳しく（折りたたみ可能） */}
+                  {/* ダメージ台帳（各項目に 英雄 / AS・PS / 直接・磁気・燃焼・脆弱 / 由来 のタグ付き） */}
+                  <DamageLedgerView
+                    ledger={calculations.damageLedger}
+                    heroNames={heroes.map(h => h.name)}
+                    titanEnabled={titanEnabled}
+                    awakeningEnabled={awakeningEnabled}
+                  />
+
+                  {/* 編成の特性値（折りたたみ可能） */}
                   <div style={{ marginTop: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', overflow: 'hidden' }}>
                     <div 
                       onClick={() => toggleTab('heroCalcDetail')}
@@ -1783,7 +1800,7 @@
                         alignItems: 'center'
                       }}
                     >
-                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>さらに詳しく</span>
+                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>編成の特性値</span>
                       <span className={`collapse-icon ${!expandedTabs.heroCalcDetail ? 'collapsed' : ''}`} style={{ fontSize: '0.875rem' }}>▼</span>
                     </div>
                     <div 
@@ -1845,14 +1862,6 @@
                           <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.burningDependencyRatio)}</div>
                         </div>
                       </div>
-
-                      {/* ダメージ台帳（各項目に 英雄 / AS・PS / 直接・磁気・燃焼・脆弱 / 由来 のタグ付き） */}
-                      <DamageLedgerView
-                        ledger={calculations.damageLedger}
-                        heroNames={heroes.map(h => h.name)}
-                        titanEnabled={titanEnabled}
-                        awakeningEnabled={awakeningEnabled}
-                      />
                     </div>
                   </div>
                 </div>
@@ -2090,4 +2099,4 @@
     ReactDOM.render(<GameCalculator />, document.getElementById('root'));
   </script>
 </body>
-</html>
+</html>

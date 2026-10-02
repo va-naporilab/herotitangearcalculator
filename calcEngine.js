@@ -4,14 +4,16 @@
 // ・index.html からは calculateAll({...}) を呼び出すだけ
 //
 // 【依存するグローバル（先に読み込むこと）】
-//   heroData.js   : heroData, exclusiveMultipliers, resolveAsDamage, resolveShieldBuff,
-//                   resolveOpeningShield, awakeningSkill1Shield, awakeningSkill1AsDamage,
-//                   AWAKENING_SKILL3_REACTIVATION_DAMAGE / _RATE など
+//   heroData.js   : heroData, exclusiveMultipliers, resolveAsDamage, resolveAsBullets,
+//                   resolveShieldBuff, resolveOpeningShield, buildTeamCtx など
+//                   （連携仕様の詳細は heroData.js 冒頭を参照。ctx の形はそちらが唯一の定義）
+//                   （覚醒スキルの効果値テーブルは各英雄の awakening 内に持つ。共通テーブルは無い）
 //   constants.js  : soldierData, getDebuffRate, titanEffects, slotNames など
 //
 // 【入力】
 //   buffs, compatibility, heroes, titanEquip, titanEnabled,
 //   awakeningEnabled, powerRoundWeights, durabilityRoundWeights, awakening
+//   （awakening[i] は { skill1, skill2, skill3, skill4 } 各0～10）
 // 【出力】
 //   従来の `calculations` と同一のオブジェクト（＋下記のダメージ台帳）
 //
@@ -54,6 +56,21 @@ function summarizeDamageLedger(rawEntries, meta) {
   return { entries, total, byPhase, byKind, byPhaseKind, byOrigin, byHero, meta: { ...meta } };
 }
 
+// 依存ファイルの読み込み漏れ・版ズレを早期に分かりやすく知らせる
+function assertEngineDependencies() {
+  const missing = [];
+  if (typeof heroData === 'undefined') missing.push('heroData');
+  if (typeof resolveAsDamage === 'undefined') missing.push('resolveAsDamage');
+  if (typeof resolveAsBullets === 'undefined') missing.push('resolveAsBullets');
+  if (typeof resolveShieldBuff === 'undefined') missing.push('resolveShieldBuff');
+  if (typeof resolveOpeningShield === 'undefined') missing.push('resolveOpeningShield');
+  if (typeof buildTeamCtx === 'undefined') missing.push('buildTeamCtx');
+  if (missing.length) {
+    throw new Error('calcEngine.js が必要とする heroData.js の定義が見つかりません: ' + missing.join(', ') +
+      '（heroData.js が古い版、または読み込み順が違う可能性があります）');
+  }
+}
+
 function calculateAll({
   buffs,
   compatibility,
@@ -65,11 +82,17 @@ function calculateAll({
   durabilityRoundWeights,
   awakening
 }) {
+  assertEngineDependencies();
+
   // 兵種の不一致チェック（外す・未実装を除く有効な英雄のみ）
   const heroTypes = heroes
     .filter(h => h.name !== '外す' && heroData[h.name] && !heroData[h.name].name)
     .map(h => heroData[h.name].type)
     .filter(t => t && t !== '汎用');
+  // ===== 編成・攻速コンテキスト（heroData.js の条件付き効果すべてに共通で渡す） =====
+  // ctx の形は heroData.js の buildTeamCtx が唯一の定義。中身はエンジンでは参照しない。
+  // 「誰と同時編成しているか」の判定は heroData.js 側が行う（hasXxx の旗は作らない）。
+  const teamCtx = buildTeamCtx(heroes, buffs);
   const uniqueTypes = [...new Set(heroTypes)];
   const typeWarning = uniqueTypes.length > 1 ? '⚠️ 英雄の兵種が異なります（混成編成）' : '';
 
@@ -251,12 +274,8 @@ function calculateAll({
       
       // ルチルのPS燃焼強化（ラウンドごと、火力重み係数で平均）
       // リヴィア/ユズハ/ノルシュ/リヴィア（神秘）との同時編成時に完全な値を返す
-      if (hero.name === 'ルチル' && data.psBurningBoostPerRound) {
-        const hasRivvia = heroes.some(h => h.name === 'リヴィア');
-        const hasYuzuha = heroes.some(h => h.name === 'ユズハ');
-        const hasNorshu = heroes.some(h => h.name === 'ノルシュ');
-        const hasNewRivvia = heroes.some(h => h.name === 'リヴィア（神秘）');
-        const boostPerRound = data.psBurningBoostPerRound(hero.exclusiveLv, hasRivvia, hasYuzuha, hasNorshu, hasNewRivvia);
+      if (data.psBurningBoostPerRound) {
+        const boostPerRound = data.psBurningBoostPerRound(hero.exclusiveLv, teamCtx);
         const avgBoost = boostPerRound.reduce((sum, val, i) => 
           sum + val * powerRoundWeights[i], 0);
         globalBurningBoost += avgBoost;
@@ -400,12 +419,6 @@ function calculateAll({
       ironWallActive: [0, 1, 2, 3].map(r => r < ironWallMaxRoundsForShield),
       always: [true, true, true, true]
     };
-    // 同時編成の存在確認。メインループ内（PS燃焼・挑発・AS付随燃焼など）で使うため、
-    // 使用箇所より前に宣言しておく必要がある（後ろに置くと「初期化前に参照」エラーになる）。
-    const hasMisty = heroes.some(h => h.name === 'ミスティ');
-    const hasAsuka = heroes.some(h => h.name === 'アスカ');
-    const hasYuzuha = heroes.some(h => h.name === 'ユズハ');
-    const hasNorshu = heroes.some(h => h.name === 'ノルシュ');
 
     const awakeningEffects = heroes.map((hero, i) => {
       if (!awakeningEnabled) return null;
@@ -420,7 +433,7 @@ function calculateAll({
       //   各呼び出し箇所に自動的に伝播するため、ここでは集計しない。
       const attachedMagnetics = aw.attachedMagnetics ? (aw.attachedMagnetics(ranks, exLv) || []) : [];
       const passiveMagneticDamageBonus = aw.passiveMagneticDamageBonus ? (aw.passiveMagneticDamageBonus(ranks, exLv) || 0) : 0;
-      const globalMagneticBoostBonus = aw.globalMagneticBoost ? (aw.globalMagneticBoost(ranks, exLv) || 0) : 0;
+      const globalMagneticBoostBonus = aw.globalMagneticBoost ? (aw.globalMagneticBoost(ranks, exLv, teamCtx) || 0) : 0;
       const magneticBurningReductionBonus = aw.magneticBurningReduction ? (aw.magneticBurningReduction(ranks, exLv) || 0) : 0;
 
       // reactivationだけは複数フィールドを持つ記述が必要（鉄壁ラウンド判定・確率補正はエンジン側の役割）
@@ -475,9 +488,6 @@ function calculateAll({
     // ── シールド種類数 = 合計重甲率 + 合計軽甲率 + 鉄壁率 ──
     const averageShieldTypes = totalHeavyArmorRate + totalLightArmorRate + ironWallRate;
 
-    const hasRachel = heroes.some(h => h.name === 'レイチェル');
-    const rachelTier = heroes.find(h => h.name === 'レイチェル')?.exclusiveLv || -1;
-
     // 後続コードとの互換性のために shieldTypesPerRound を作成
     // （鉄壁は各ラウンドごとに1加算、重甲率・軽甲率は全ラウンド共通）
     // レイチェル専7の+0.12は重甲率補填として averageShieldTypes に反映済み
@@ -486,9 +496,6 @@ function calculateAll({
       shieldTypesPerRound[i] = totalHeavyArmorRate + totalLightArmorRate;
       if (i < ironWallMaxRoundsForShield) shieldTypesPerRound[i] += 1;
     }
-
-    // 互換変数（旧コードで参照されている変数）
-    const marinaTier = heroes.find(h => h.name === 'マリナ')?.exclusiveLv || -1;
 
     // 拡散ダメ加算の集計（レイチェル・マリナ・コレット・ルーシィから）
     let totalScatterDamageBoost = 0;
@@ -501,67 +508,35 @@ function calculateAll({
     let shieldTypesDamageIncrease = 0;
     
     // レイチェルの重甲倍率
-    let rachelArmorMultiplier = 1.0;
+    let psArmorMultiplier = 1.0;
     
     heroes.forEach(hero => {
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       const exLv = hero.exclusiveLv;
       
-      // レイチェル
-      if (hero.name === 'レイチェル') {
-        if (data.scatterDamageBoost) {
-          totalScatterDamageBoost += data.scatterDamageBoost(exLv);
-        }
-        if (data.scatterBulletBonus) {
-          scatterBulletBonus = Math.max(scatterBulletBonus, data.scatterBulletBonus);
-        }
-        if (data.damageReductionAddition) {
-          totalDamageReductionAddition += data.damageReductionAddition;
-        }
-        if (data.shieldTypesDamageBoost) {
-          shieldTypesDamageIncrease += averageShieldTypes * data.shieldTypesDamageBoost(exLv);
-        }
-        if (data.armorMultiplier) {
-          rachelArmorMultiplier = data.armorMultiplier(exLv);
-        }
+      // 拡散ダメ加算・ダメ減加算・シールド種類数連動効果の集計（英雄名ではなく項目の有無で拾う）
+      if (data.scatterDamageBoost) {
+        totalScatterDamageBoost += data.scatterDamageBoost(exLv);
       }
-      
-      // マリナ
-      if (hero.name === 'マリナ') {
-        if (data.scatterDamageBoost) {
-          totalScatterDamageBoost += data.scatterDamageBoost(exLv);
-        }
-        if (data.scatterBulletBonus) {
-          const bonus = typeof data.scatterBulletBonus === 'function' ? data.scatterBulletBonus(exLv) : data.scatterBulletBonus;
-          scatterBulletBonus = Math.max(scatterBulletBonus, bonus);
-        }
-        if (data.damageReductionAddition) {
-          totalDamageReductionAddition += data.damageReductionAddition;
-        }
-        if (data.shieldTypesDamageBoost) {
-          shieldTypesDamageIncrease += averageShieldTypes * data.shieldTypesDamageBoost(exLv);
-        }
+      if (data.scatterBulletBonus) {
+        const bonus = typeof data.scatterBulletBonus === 'function' ? data.scatterBulletBonus(exLv) : data.scatterBulletBonus;
+        scatterBulletBonus = Math.max(scatterBulletBonus, bonus);
       }
-      
-      // コレット・ピスカ
-      if (hero.name === 'コレット' || hero.name === 'ピスカ') {
-        if (data.shieldTypesScatterBoost) {
-          totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
-        }
-        if (data.shieldTypesDamageReductionBoost) {
-          totalDamageReductionAddition += averageShieldTypes * data.shieldTypesDamageReductionBoost(exLv);
-        }
+      if (data.damageReductionAddition) {
+        totalDamageReductionAddition += data.damageReductionAddition;
       }
-      
-      // ルーシィ
-      if (hero.name === 'ルーシィ') {
-        if (data.shieldTypesScatterBoost) {
-          totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
-        }
-        if (data.shieldTypesDamageReductionBoost) {
-          totalDamageReductionAddition += averageShieldTypes * data.shieldTypesDamageReductionBoost(exLv);
-        }
+      if (data.shieldTypesDamageBoost) {
+        shieldTypesDamageIncrease += averageShieldTypes * data.shieldTypesDamageBoost(exLv);
+      }
+      if (data.armorMultiplier) {
+        psArmorMultiplier = data.armorMultiplier(exLv);
+      }
+      if (data.shieldTypesScatterBoost) {
+        totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
+      }
+      if (data.shieldTypesDamageReductionBoost) {
+        totalDamageReductionAddition += averageShieldTypes * data.shieldTypesDamageReductionBoost(exLv);
       }
     });
 
@@ -571,7 +546,7 @@ function calculateAll({
       if (!data || data.name === '未実装' || data.name === '外す') return;
       const exLv = hero.exclusiveLv;
       
-      if (hero.name === 'ミーチェ' && data.asDamageReduction) {
+      if (data.asDamageReduction) {
         // 全軍突撃の確認
         let hasRush = false;
         if (useTitan) {
@@ -679,16 +654,15 @@ function calculateAll({
     let runeMagneticBonus = 0;
     heroes.forEach((hero, i) => {
       const data = heroData[hero.name];
-      if (hero.name === 'ルネ' && data && data.magneticBulletsBonus) {
+      if (data && data.magneticBulletsBonus) {
         runeMagneticBonus = data.magneticBulletsBonus(hero.exclusiveLv);
       }
     });
 
-    const hasCombo = heroes.some(h => h.name === 'ペトラ' || h.name === 'フランカ') && heroes.some(h => h.name === 'ミヤ' || h.name === 'クラリス');
 
     // 磁気数期待値の集計（アカネのAS拡散ダメ計算用）
     let totalMagneticBulletsExpected = 0;
-    const magneticHeroCount = heroes.filter(h => ['フェルム', 'アカネ', 'ペトラ', 'フランカ', 'アスカ'].includes(h.name)).length - 1; // 自分を除く
+    const magneticHeroCount = heroes.filter(h => heroData[h.name] && heroData[h.name].isMagneticHero).length - 1; // 自分を除く
     
     // 脆弱数期待値の集計（アリア＆ティナのASボーナス計算用）
     let totalVulnerableBulletsExpected = 0;
@@ -730,12 +704,10 @@ function calculateAll({
         // AS発動率の取得（アリア＆ティナは専用レベルに応じて変化）
         const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
         const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
-        const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+        const bullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
         
-        // ソフィ・ヒヨリの異常特攻判定
-        const hasAbnormalCombo = (hero.name === 'ソフィ' || hero.name === 'ヒヨリ') &&
-          heroes.some(h => h.name === 'アイリス' || h.name === 'ミーク' || h.name === 'マゼリア');
-        const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, hasAbnormalCombo);
+        // 異常特攻などの編成条件は heroData 側が teamCtx を見て判定する
+        const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
         
         // ノーラのグローバルASダメージ倍率を適用（直接ダメージ部分のみ）
         let asDamageMultiplier = 1.0;
@@ -747,7 +719,7 @@ function calculateAll({
         
         // アリア＆ティナの脆弱ボーナス計算
         let finalDamage = damage;
-        if (hero.name === 'アリア＆ティナ' && data.asVulnerableBonus) {
+        if (data.asVulnerableBonus) {
           const vulnerableProb = totalDirectBullets > 0 ? totalVulnerableBulletsExpected / totalDirectBullets : 0;
           const normalDamage = damage;
           const bonusDamage = data.asVulnerableBonus;
@@ -771,9 +743,9 @@ function calculateAll({
         // AS付随燃焼（ルチル・ノルシュ・ミスティ）
         if (data.asBurning) {
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
-          // 関数形式の場合はhasYuzuha, hasNorshuを渡す
+          // 関数形式の場合は teamCtx を渡す（ユズハ/ノルシュ同時編成の判定は heroData 側）
           const burningInfo = typeof data.asBurning === 'function' 
-            ? data.asBurning(hasYuzuha, hasNorshu) 
+            ? data.asBurning(teamCtx) 
             : data.asBurning;
           const asBurningDamage = (actualRate * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalASDamage += asBurningDamage;
@@ -781,15 +753,13 @@ function calculateAll({
           totalBurningDamage += asBurningDamage;
         }
 
-        if ((hero.name === 'ペトラ' || hero.name === 'フランカ') && data.asExtraEffect) {
-          const extra = data.asExtraEffect(exLv, hasCombo);
+        if (data.asExtraEffect) {
+          const extra = data.asExtraEffect(exLv, teamCtx);
           if (extra) {
             // ルネボーナスを適用した弾数係数
             const bulletCoefficient = 1.5 + runeMagneticBonus;
             // AS弾数は英雄ごとに異なる判定
-            const asBulletsCount = hero.name === 'フランカ' 
-              ? (exLv >= 7 ? 5 : 4) 
-              : (exLv >= 5 ? 5 : 4);
+            const asBulletsCount = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
             const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
             const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
             const extraDamage = (actualRate * extra.damage * adjustedBullets * magneticBoost / 100) / abnormalReductionDivisor;
@@ -805,7 +775,7 @@ function calculateAll({
         
         // アカネの追加AS直接ダメージ（拡散ダメージではない）
         // 絶対値ダメージ（ASダメージ基準ではない）なので、ノーラ等のASダメージ倍率は適用しない
-        if (hero.name === 'アカネ' && data.asScatterDamage) {
+        if (data.asScatterDamage) {
           const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
           const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
           const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
@@ -821,12 +791,12 @@ function calculateAll({
         }
         
         // コレット・ピスカ・ルーシィの拡散ダメージ
-        if ((hero.name === 'コレット' || hero.name === 'ピスカ' || hero.name === 'ルーシィ') && data.scatterDamage) {
+        if (data.scatterDamage) {
           const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
           const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
           
           // AS弾数
-          const asBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+          const asBullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
           
           // 拡散基礎ダメージ（絶対値：100%基準 × baseRatio。ASダメージの大小には依存しない）
           const baseScatterRatio = data.scatterDamage.baseRatio;
@@ -840,7 +810,7 @@ function calculateAll({
           let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus;
           
           // コレット・ピスカ：種類数に応じた追加弾数
-          if ((hero.name === 'コレット' || hero.name === 'ピスカ') && data.scatterDamage.conditionalBullets) {
+          if (data.scatterDamage && data.scatterDamage.conditionalBullets) {
             // 各ラウンドで追加弾数を計算して火力重みで平均
             const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
               data.scatterDamage.conditionalBullets(exLv, types));
@@ -894,7 +864,7 @@ function calculateAll({
 
       // リヴィア・アスカのPS燃焼
       if (data.psBurning) {
-        const psInfo = data.psBurning(exLv, buffs.speedCondition, hasMisty, hasAsuka);
+        const psInfo = data.psBurning(exLv, teamCtx);
         if (psInfo) {
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
           const psBurningDamage = (psInfo.rate * psInfo.value * psInfo.count * burningBoost / 100) / abnormalReductionDivisor;
@@ -905,8 +875,8 @@ function calculateAll({
       }
 
       // ユズハの挑発燃焼（R1とR2のみ）
-      if (hero.name === 'ユズハ' && data.taunt) {
-        const tauntInfo = data.taunt(exLv, buffs.speedCondition, hasMisty, hasAsuka);
+      if (data.taunt) {
+        const tauntInfo = data.taunt(exLv, teamCtx);
         if (tauntInfo) {
           // R1とR2の重み係数で補正
           const tauntWeight = powerRoundWeights[0] + powerRoundWeights[1];
@@ -995,22 +965,15 @@ function calculateAll({
         });
       }
 
-      // ノーラ・アデルのPS衰弱付与
-      if ((hero.name === 'ノーラ' || hero.name === 'アデル') && data.psDebuffValue) {
-        const debuffRate = data.psDebuffRate(exLv) / 100;
-        const enhancedValue = data.psDebuffValue * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
-        debuffEffects.push({ value: enhancedValue, rate: debuffRate });
-      }
-
-      // ツバキのPS衰弱付与
-      if (hero.name === 'ツバキ' && data.psDebuffValue) {
+      // PS衰弱付与（ノーラ・アデル・ツバキ）
+      if (data.psDebuffValue) {
         const debuffRate = data.psDebuffRate(exLv) / 100;
         const enhancedValue = data.psDebuffValue * (100 + localWeakenBoosts[i] + globalDebuffBoost) / 100;
         debuffEffects.push({ value: enhancedValue, rate: debuffRate });
       }
 
       // ミーク・アイリス・デュークのAS衰弱付与
-      if ((hero.name === 'ミーク' || hero.name === 'マゼリア' || hero.name === 'アイリス' || hero.name === 'デューク' || hero.name === 'デスコ') && data.asDebuff) {
+      if (data.asDebuff) {
         const debuffInfo = typeof data.asDebuff === 'function' 
           ? data.asDebuff(exLv, hasRush, buffs.silenceCount)
           : data.asDebuff;
@@ -1092,9 +1055,9 @@ function calculateAll({
       if (data.psArmor) {
         const psArmor = typeof data.psArmor === 'function' ? data.psArmor(exLv) : data.psArmor;
         let count = psArmor.count;
-        // レイチェル専7の重甲倍率を適用
-        if (rachelArmorMultiplier > 1.0 && hero.name === 'レイチェル') {
-          count *= rachelArmorMultiplier;
+        // 重甲倍率（armorMultiplierを持つ英雄のPS重甲にのみ適用）
+        if (psArmorMultiplier > 1.0 && data.armorMultiplier) {
+          count *= psArmorMultiplier;
         }
         totalArmorEffect += (psArmor.value / 100) * count * 0.6;
       }
@@ -1301,7 +1264,7 @@ function calculateAll({
       const exLv = hero.exclusiveLv;
 
       // ノーラ・アデルのPS脆弱付与（1ラウンドに1度、確率11.11%）
-      if ((hero.name === 'ノーラ' || hero.name === 'アデル') && data.psVulnerableValue) {
+      if (data.psVulnerableValue) {
         const vulnerValue = typeof data.psVulnerableValue === 'function' ? data.psVulnerableValue(exLv) : data.psVulnerableValue;
         const triggerRate = data.psVulnerableTriggerRate;
         const baseDamage = data.psVulnerableDamage(exLv);
@@ -1314,7 +1277,7 @@ function calculateAll({
       }
 
       // マゼリアのAS脆弱付与
-      if (hero.name === 'マゼリア' && data.asVulnerable) {
+      if (data.asVulnerable) {
         const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
         const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
         const { value: vulnerValue, count: vulnerCount, lossCoef } = data.asVulnerable;
@@ -1330,7 +1293,7 @@ function calculateAll({
       }
 
       // ソフィ・ヒヨリのPS脆弱ダメージ（毎ターン、期待値計算済み）
-      if ((hero.name === 'ソフィ' || hero.name === 'ヒヨリ') && data.psVulnerable) {
+      if (data.psVulnerable) {
         const psInfo = data.psVulnerable(exLv);
         const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
         const psvulnerDamage = psInfo.count * psInfo.damage * (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
@@ -1341,8 +1304,8 @@ function calculateAll({
       }
       
       // アリア＆ティナのPS脆弱（専5以上で1ラウンドに1度）
-      if (hero.name === 'アリア＆ティナ' && data.psVulnerable) {
-        const psInfo = data.psVulnerable(exLv);
+      if (data.psVulnerableFromDirect) {
+        const psInfo = data.psVulnerableFromDirect(exLv);
         if (psInfo) {
           const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
           // 脆弱ダメージ = (直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × 付与数 × 発動率 × 脆弱強化 / 攻撃強化補正
@@ -1458,7 +1421,7 @@ function calculateAll({
       if (!data || data.name === '未実装' || data.name === '外す') return;
       const exLv = hero.exclusiveLv;
       
-      if ((hero.name === 'シャーリー' || hero.name === 'メル') && data.psAdditionalDamage) {
+      if (data.psAdditionalDamage) {
         const psInfo = data.psAdditionalDamage(exLv);
         const additionalDamage = psInfo.rate * psInfo.damage * psInfo.multiplier * psInfo.count;
         totalPSDamage += additionalDamage;
@@ -1500,22 +1463,20 @@ function calculateAll({
           
           // AS直接ダメージの全突分
           if (data.asDamage && data.asBullets) {
-            const bullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
-            const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null);
+            const bullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
+            const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
             const rushPartAs = actualRate * damage * bullets * (rushValue / 100);
             rushBonus += rushPartAs;
             rushAdd(hero, i, 'plain', 'direct', '全軍突撃:AS本体', rushPartAs);
           }
 
           // ペトラのAS追加磁気の全突分（磁気属性だが全突対象）
-          if ((hero.name === 'ペトラ' || hero.name === 'フランカ') && data.asExtraEffect) {
-            const extra = data.asExtraEffect(exLv, hasCombo);
+          if (data.asExtraEffect) {
+            const extra = data.asExtraEffect(exLv, teamCtx);
             if (extra) {
               const bulletCoefficient = 1.5 + runeMagneticBonus;
               // AS弾数は英雄ごとに異なる判定
-              const asBulletsCount = hero.name === 'フランカ' 
-                ? (exLv >= 7 ? 5 : 4) 
-                : (exLv >= 5 ? 5 : 4);
+              const asBulletsCount = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
               const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
               const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
               const rushPartExtra = actualRate * extra.damage * adjustedBullets * magneticBoost / 100 * (rushValue / 100);
@@ -1525,7 +1486,7 @@ function calculateAll({
           }
 
           // アカネのAS追加直接ダメージの全突分（拡散ダメージではないため、レイチェル等の拡散補正は適用しない）
-          if (hero.name === 'アカネ' && data.asScatterDamage) {
+          if (data.asScatterDamage) {
             const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
             const rushPartAkane = actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
             rushBonus += rushPartAkane;
@@ -1533,8 +1494,8 @@ function calculateAll({
           }
 
           // コレット・ピスカ・ルーシィの拡散ダメージの全突分
-          if ((hero.name === 'コレット' || hero.name === 'ピスカ' || hero.name === 'ルーシィ') && data.scatterDamage) {
-            const asBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+          if (data.scatterDamage) {
+            const asBullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
             
             // 拡散基礎ダメージ（絶対値：100%基準 × baseRatio。ASダメージの大小には依存しない）
             const baseScatterRatio = data.scatterDamage.baseRatio;
@@ -1548,7 +1509,7 @@ function calculateAll({
             let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus;
             
             // コレット・ピスカ：種類数に応じた追加弾数
-            if ((hero.name === 'コレット' || hero.name === 'ピスカ') && data.scatterDamage.conditionalBullets) {
+            if (data.scatterDamage && data.scatterDamage.conditionalBullets) {
               // 各ラウンドで追加弾数を計算して火力重みで平均
               const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
                 data.scatterDamage.conditionalBullets(exLv, types));
@@ -1610,7 +1571,7 @@ function calculateAll({
           });
 
           // マゼリアのAS脆弱付与の全突分
-          if (hero.name === 'マゼリア' && data.asVulnerable) {
+          if (data.asVulnerable) {
             const { value: vulnerValue, count: vulnerCount, lossCoef } = data.asVulnerable;
             const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
             const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) *
@@ -1664,8 +1625,8 @@ function calculateAll({
       const baseAsRate = typeof data.asRate === 'function' ? data.asRate(exLv) : (data.asRate || 0);
       const actualRate = baseAsRate * (9 - buffs.silenceCount) / 9 / 100;
       // 覚醒スキルのASダメージ加算込みの値（resolveAsDamageが内部で加算する）
-      const effectiveAsDamage = resolveAsDamage(data, exLv, ranks);
-      const baseAsBullets = typeof data.asBullets === 'function' ? data.asBullets(exLv) : (data.asBullets || 0);
+      const effectiveAsDamage = resolveAsDamage(data, exLv, ranks, teamCtx);
+      const baseAsBullets = resolveAsBullets(data, exLv, ranks, teamCtx);
       const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
 
       // --- asAttachedMagnetic：AS発動のたびに100%効果で発生する磁気ダメージ ---
@@ -1685,7 +1646,7 @@ function calculateAll({
           data.psMagneticBullets + runeMagneticBonus;
         const dmg = (agg.passiveMagneticDamageFlatSum * bullets * magneticBoost / 100) / abnormalReductionDivisor;
         totalPSDamage += dmg;
-        ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'awakening', source: '覚醒:パッシブ磁気加算', value: dmg });
+        ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'awakening', source: '覚醒:パッシブ磁気加算' + (data.awakening.passiveMagneticSkill ? '(スキル' + data.awakening.passiveMagneticSkill + ')' : ''), value: dmg });
         totalMagneticDamage += dmg;
       }
 
@@ -1704,7 +1665,7 @@ function calculateAll({
         // 英雄固有のAS付随燃焼（ルチルなど）：100%効果
         if (data.asBurning) {
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
-          const burningInfo = typeof data.asBurning === 'function' ? data.asBurning(hasYuzuha, hasNorshu) : data.asBurning;
+          const burningInfo = typeof data.asBurning === 'function' ? data.asBurning(teamCtx) : data.asBurning;
           const reactBurningDamage = (reactivateExpected * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalASDamage += reactBurningDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'burning', origin: 'awakening', source: '覚醒:再発動燃焼', value: reactBurningDamage });
@@ -1735,13 +1696,13 @@ function calculateAll({
     let damageIncreaseCoeff = 1.0;
     let damageReductionCoeff = 1.0;
     
-    // ソフィ編成ボーナス（ダメ増減各+20%）※ヒヨリ単独では発動しない
-    let sofiDamageBoost = 0;
-    const hasHiyori = heroes.some(h => h.name === 'ヒヨリ');
-    const hasSofi = heroes.some(h => h.name === 'ソフィ');
-    if (hasSofi) {
-      sofiDamageBoost = 20;
-    }
+    // 編成ボーナス（ダメ増減への加算）：heroData の partyDamageBoost を持つ英雄がいれば適用（重複しない）
+    // 例：ソフィ+20%（ヒヨリ単独では発動しない）
+    let partyDamageBoost = 0;
+    heroes.forEach(hero => {
+      const d = heroData[hero.name];
+      if (d && d.partyDamageBoost) partyDamageBoost = Math.max(partyDamageBoost, d.partyDamageBoost);
+    });
     
     // （ミスティ・アスカ・ユズハ・ノルシュの存在確認は、メインループより前に必要なため上部へ移動済み）
     
@@ -1784,8 +1745,8 @@ function calculateAll({
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       
-      if ((hero.name === 'リヴィア' || hero.name === 'リヴィア（神秘）') && data.psDamageIncreasePerRound) {
-        const damageIncreasePerRound = data.psDamageIncreasePerRound(hero.exclusiveLv, buffs.speedCondition, hasMisty, hasAsuka);
+      if (data.psDamageIncreasePerRound) {
+        const damageIncreasePerRound = data.psDamageIncreasePerRound(hero.exclusiveLv, teamCtx);
         if (damageIncreasePerRound) {
           riviaDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 
             sum + val * powerRoundWeights[i], 0);
@@ -1799,7 +1760,7 @@ function calculateAll({
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       
-      if (hero.name === 'ユズハ' && data.damageIncreasePerRound) {
+      if (data.damageIncreasePerRound) {
         const [r1Boost, r234Boost] = data.damageIncreasePerRound(hero.exclusiveLv);
         yuzuhaDamageIncrease = r1Boost * powerRoundWeights[0] + 
                                r234Boost * (powerRoundWeights[1] + powerRoundWeights[2] + powerRoundWeights[3]);
@@ -1812,7 +1773,7 @@ function calculateAll({
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       
-      if (hero.name === 'スネークアイズ' && data.psDamageIncrease) {
+      if (data.psDamageIncrease) {
         snakeEyesDamageIncrease += data.psDamageIncrease;
       }
     });
@@ -1823,7 +1784,7 @@ function calculateAll({
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       
-      if (hero.name === 'メイメイ' && data.damageIncreaseAddition) {
+      if (data.damageIncreaseAddition) {
         const damageIncreasePerRound = data.damageIncreaseAddition(hero.exclusiveLv);
         meimeiDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 
           sum + val * powerRoundWeights[i], 0);
@@ -1831,9 +1792,9 @@ function calculateAll({
     });
     
     // 戦場洞察（タイタンON時）+ ソフィボーナス + レイチェル/マリナのシールド種類数ボーナス + リヴィア + ユズハ + スネークアイズ + メイメイ → ダメ増・ダメ減補正係数
-    const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + sofiDamageBoost + shieldTypesDamageIncrease + 
+    const totalDamageIncreaseBonus = (useTitan ? totalInsightValue : 0) + partyDamageBoost + shieldTypesDamageIncrease + 
                                      riviaDamageIncrease + yuzuhaDamageIncrease + snakeEyesDamageIncrease + meimeiDamageIncrease;
-    const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + sofiDamageBoost + totalDamageReductionAddition;
+    const totalDamageReductionBonus = (useTitan ? totalElusivenessValue : 0) + partyDamageBoost + totalDamageReductionAddition;
     
     // 鼓動効果：通常攻撃と連撃にのみ作用する。
     // 磁気・燃焼・復讐・PS追加ダメージ・PS脆弱など、他のPSには作用しない。
@@ -1915,7 +1876,7 @@ function calculateAll({
         let finalCorrection = baseCorrection + destructibleBonus;
         
         // デュークなどの鉄壁補正係数の下方修正
-　　　　　　　if (['デューク', 'デスコ'].includes(hero.name) && data.ironWallCorrectionAdjustment) {                const adjustment = data.ironWallCorrectionAdjustment(exLv);
+　　　　　　　if (data.ironWallCorrectionAdjustment) {                const adjustment = data.ironWallCorrectionAdjustment(exLv);
           finalCorrection = 1+(finalCorrection-1 )* adjustment;
         }
         
