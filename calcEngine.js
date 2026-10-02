@@ -20,6 +20,7 @@
 // 【ダメージ台帳 damageLedger（追加）】
 //   calculations.damageLedger            … 画面の設定（titanEnabled）どおりの状態。英雄火力の表示と同じ条件
 //   calculations.damageLedgerWithoutTitan … タイタン無し（常にタイタン効果を除いた状態）
+//   calculations.awakeningIncreases       … 覚醒ON/OFFでの増分(%)。increases（タイタン増分）と同じキー名
 //   最終集計（追撃総ダメージ=AS / パッシブダメージ=PS）に入る全項目に、由来のタグを付けた記録。
 //     entries[] : { hero, heroIndex, phase, kind, origin, source, slot, value, heartbeat, share }
 //       hero   : 英雄名（通常攻撃など英雄に属さないものは null）
@@ -145,7 +146,8 @@ function calculateAll({
   const baseCompatTroopSoldierStrength = (baseCompatTroopSoldierDurability / 1000000000) * (baseCompatTroopSoldierPower / 1000000000);
 
   // タイタン効果の計算（ON/OFF両方）
-  const calculateHeroStats = (useTitan) => {
+  // useAwakening を省略すると画面の設定（awakeningEnabled）どおり。覚醒ON/OFF比較のため引数で上書きできる
+  const calculateHeroStats = (useTitan, useAwakening = awakeningEnabled) => {
     let totalAttackBuff = 0;
     let totalShieldBuff = buffs.baseShield;
     let totalASDamage = 0;
@@ -421,7 +423,7 @@ function calculateAll({
     };
 
     const awakeningEffects = heroes.map((hero, i) => {
-      if (!awakeningEnabled) return null;
+      if (!useAwakening) return null;
       const data = heroData[hero.name];
       if (!data || !data.awakening) return null;
       const ranks = awakening[i] || {};
@@ -679,13 +681,13 @@ function calculateAll({
       }
 
       if (data.shieldBuff) {
-        const shieldBoost = resolveShieldBuff(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null);
+        const shieldBoost = resolveShieldBuff(data, exLv, useAwakening ? (awakening[i] || {}) : null);
         totalShieldBuff += shieldBoost * (100 + steelBoosts[i]) / 100;
       }
 
       // 開戦シールド（ミーチェ、クラリス、ピスカなど）
       if (data.openingShield) {
-        const openingShieldValue = resolveOpeningShield(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null);
+        const openingShieldValue = resolveOpeningShield(data, exLv, useAwakening ? (awakening[i] || {}) : null);
         if (openingShieldValue > 0) {
           totalShieldBuff += openingShieldValue * (100 + steelBoosts[i]) / 100;
         }
@@ -704,10 +706,10 @@ function calculateAll({
         // AS発動率の取得（アリア＆ティナは専用レベルに応じて変化）
         const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
         const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
-        const bullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
+        const bullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
         
         // 異常特攻などの編成条件は heroData 側が teamCtx を見て判定する
-        const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
+        const damage = resolveAsDamage(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
         
         // ノーラのグローバルASダメージ倍率を適用（直接ダメージ部分のみ）
         let asDamageMultiplier = 1.0;
@@ -796,7 +798,7 @@ function calculateAll({
           const actualRate = baseRate * (9 - buffs.silenceCount) / 9 / 100;
           
           // AS弾数
-          const asBullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
+          const asBullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
           
           // 拡散基礎ダメージ（絶対値：100%基準 × baseRatio。ASダメージの大小には依存しない）
           const baseScatterRatio = data.scatterDamage.baseRatio;
@@ -1463,8 +1465,8 @@ function calculateAll({
           
           // AS直接ダメージの全突分
           if (data.asDamage && data.asBullets) {
-            const bullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
-            const damage = resolveAsDamage(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
+            const bullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
+            const damage = resolveAsDamage(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
             const rushPartAs = actualRate * damage * bullets * (rushValue / 100);
             rushBonus += rushPartAs;
             rushAdd(hero, i, 'plain', 'direct', '全軍突撃:AS本体', rushPartAs);
@@ -1495,7 +1497,7 @@ function calculateAll({
 
           // コレット・ピスカ・ルーシィの拡散ダメージの全突分
           if (data.scatterDamage) {
-            const asBullets = resolveAsBullets(data, exLv, awakeningEnabled ? (awakening[i] || {}) : null, teamCtx);
+            const asBullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
             
             // 拡散基礎ダメージ（絶対値：100%基準 × baseRatio。ASダメージの大小には依存しない）
             const baseScatterRatio = data.scatterDamage.baseRatio;
@@ -1971,6 +1973,8 @@ function calculateAll({
 
   const withTitan = calculateHeroStats(titanEnabled);
   const withoutTitan = calculateHeroStats(false);
+  // 覚醒OFFとの比較用（タイタンの状態は画面の設定のまま、覚醒だけをOFFにして計算）
+  const withoutAwakening = awakeningEnabled ? calculateHeroStats(titanEnabled, false) : withTitan;
 
   const calcIncrease = (withVal, withoutVal) => {
     if (withoutVal === 0) return 0;
@@ -2106,6 +2110,24 @@ function calculateAll({
     powerDurabilityRatio: (withTitan.heroPower * compatTroopSoldierPower) / (withTitan.heroDurability * compatTroopSoldierDurability),
     // 総合強さ値は1B^2がかからないように計算（火力乖離係数適用済み）
     totalStrength: (withTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
+    // 覚醒ON/OFFでの増分（%）。タイタン増分(increases)と同じキー名・同じ計算方法で、覚醒のON/OFFだけを比較する
+    awakeningIncreases: {
+      heroBasePower: calcIncrease(withTitan.heroBasePower, withoutAwakening.heroBasePower),
+      heroBaseDurability: calcIncrease(withTitan.heroBaseDurability, withoutAwakening.heroBaseDurability),
+      totalASDamage: calcIncrease(withTitan.totalASDamage, withoutAwakening.totalASDamage),
+      passiveDamage: calcIncrease(withTitan.passiveDamage, withoutAwakening.passiveDamage),
+      ironWallCorrection: calcIncrease(withTitan.ironWallCorrection, withoutAwakening.ironWallCorrection),
+      totalDebuffDurabilityCorrection: calcIncrease(withTitan.totalDebuffDurabilityCorrection, withoutAwakening.totalDebuffDurabilityCorrection),
+      heroPower: calcIncrease(withTitan.heroPower, withoutAwakening.heroPower),
+      heroDurability: calcIncrease(withTitan.heroDurability, withoutAwakening.heroDurability),
+      heroStrength: calcIncrease(withTitan.heroStrength, withoutAwakening.heroStrength),
+      totalPower: calcIncrease(withTitan.heroPower * compatTroopSoldierPower, withoutAwakening.heroPower * compatTroopSoldierPower),
+      totalDurability: calcIncrease(withTitan.heroDurability * compatTroopSoldierDurability, withoutAwakening.heroDurability * compatTroopSoldierDurability),
+      totalStrength: calcIncrease(
+        (withTitan.heroPower * compatTroopSoldierPower / 1000000000) * (withTitan.heroDurability * compatTroopSoldierDurability / 1000000000),
+        (withoutAwakening.heroPower * compatTroopSoldierPower / 1000000000) * (withoutAwakening.heroDurability * compatTroopSoldierDurability / 1000000000)
+      )
+    },
     increases: {
       heroBasePower: calcIncrease(withTitan.heroBasePower, withoutTitan.heroBasePower),
       heroBaseDurability: calcIncrease(withTitan.heroBaseDurability, withoutTitan.heroBaseDurability),
