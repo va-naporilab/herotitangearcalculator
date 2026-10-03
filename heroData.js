@@ -19,6 +19,13 @@
 //     psBurning(ex, ctx) / psDamageIncreasePerRound(ex, ctx) / taunt(ex, ctx)
 //     psBurningBoostPerRound(ex, ctx)
 //     awakening.{shieldBonus, asDamageBonus, asBulletsBonus, globalMagneticBoost, ...}(ranks, exLv, ctx)
+//     【連撃（psCombo を持つ英雄だけが読み取るローカル効果）】
+//     psComboCumulativeBase(ex)                : PS連撃強化の累積基礎値（%）。calcCumulativeComboAverage(n) と掛けて「連撃強化」になる
+//     psComboLocalBoost(ex, ctx)               : 自身の連撃にのみ加算されるローカル連撃強化（%）
+//     awakening.comboCumulativeBaseBonus(ranks, exLv, ctx) : 累積基礎値への加算（%）
+//     awakening.comboLocalBoost(ranks, exLv, ctx)          : ローカル連撃強化への加算（%）
+//     awakening.comboCountBonus(ranks, exLv, ctx)          : 確率で連撃回数+1の配列 [{condition:'always'|'ironWallActive', triggerRate(%)}]
+//     awakening.comboWeakenResist(ranks, exLv, ctx)        : 連撃ダメージにだけ掛かる衰弱抵抗 {prob(0〜1), resist(%)}（なしはnull）
 //
 // ■ エンジンが参照する統一ヘルパー（このファイル末尾側で定義）
 //     resolveAsDamage / resolveAsBullets / resolveShieldBuff / resolveOpeningShield / buildTeamCtx
@@ -102,6 +109,21 @@ function resolveOpeningShield(data, exLv, awakeningRanks) {
     base += data.awakening.shieldBonus(awakeningRanks, exLv) || 0;
   }
   return base;
+}
+
+// ===== PS連撃強化（累積型）の平均係数 =====
+// 連撃回数 n に対し、k発目の連撃は (k-1)×累積基礎値 だけ強化される累積型の効果。
+//   a = Σ_{i=1..整数部m} (m - i)  +  小数部f × (繰り上げ整数 - 1)   ※ 整数部mを使う（= m(m-1)/2 + f×m）
+//   平均係数 = a / n  →  連撃強化(%) = 累積基礎値 × a / n
+// nは「連撃回数＋覚醒による増加期待値」で、小数になりうる。
+function calcCumulativeComboAverage(n) {
+  if (!(n > 0)) return 0;
+  const m = Math.floor(n + 1e-9);
+  const f = n - m > 1e-9 ? n - m : 0;
+  let a = 0;
+  for (let i = 1; i <= m; i++) a += m - i;
+  if (f > 0) a += f * (Math.ceil(n) - 1);
+  return a / n;
 }
 
 const heroData = {
@@ -1374,11 +1396,64 @@ const heroData = {
           const count = ex >= 7 ? 3 : 2;
           return { rate: 0.69 * triggerRate, count: count };
         },
-        // PS連撃強化（グローバル効果）
-        comboBoost: (ex) => {
-          if (ex >= 7) return 15;
-          if (ex >= 5) return 10;
-          return 5;
+        // PS連撃強化（ビスコットの連撃にのみ作用するローカル効果・累積型）
+        //   累積基礎値：専5以上で10、専5未満で5。連撃回数に応じて calcCumulativeComboAverage で平均化される
+        psComboCumulativeBase: (ex) => (ex >= 5 ? 10 : 5),
+        // ===== 覚醒スキル =====
+        awakening: {
+          // スキル1：開戦シールド加算（ランク1以上）＋ ローカル連撃強化（ランク6以上）
+          shieldBonus: (ranks, exLv) => {
+            if (!ranks.skill1 || ranks.skill1 <= 0) return 0;
+            const table = [1, 2, 3, 4.5, 6, 8, 10, 13, 16, 20]; // index: rank-1
+            let v = table[ranks.skill1 - 1] || 0;
+            if (exLv >= 7) v *= 1.5;
+            return v;
+          },
+          // ローカル連撃強化（自身の連撃にのみ加算）
+          //   スキル1：ランク6以上（専用倍率なし）
+          //   スキル3：ギャビーとフローリアを同時編成（専7以上で1.5倍）
+          comboLocalBoost: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
+            let total = 0;
+            const s1Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+            total += s1Table[ranks.skill1] || 0;
+            if (ranks.skill3 > 0 && team.includes('ギャビー') && team.includes('フローリア')) {
+              const t = [0.5, 1, 1.5, 2.25, 3, 4, 5, 6.5, 8, 10]; // index: rank-1
+              total += (t[ranks.skill3 - 1] || 0) * (exLv >= 7 ? 1.5 : 1);
+            }
+            return total;
+          },
+
+          // スキル2：連撃ダメージにだけ掛かる衰弱抵抗（ランク1以上）。確率60%、抵抗値は専7以上で1.5倍
+          comboWeakenResist: (ranks, exLv) => {
+            if (!ranks.skill2 || ranks.skill2 <= 0) return null;
+            const t = [1.5, 3, 4.5, 6.75, 9, 12, 15, 19.5, 24, 30]; // index: rank-1
+            return { prob: 0.6, resist: (t[ranks.skill2 - 1] || 0) * (exLv >= 7 ? 1.5 : 1) };
+          },
+
+          // 確率で連撃回数+1（期待値としてエンジンが加算。専用倍率なし）
+          //   スキル2：ランク6〜10、条件なし
+          //   スキル3：ランク6〜10、鉄壁が有効なラウンドのみ（ギャビー＋フローリアの編成条件は付けない）
+          comboCountBonus: (ranks) => {
+            const list = [];
+            const s2 = { 6: 12, 7: 15, 8: 19.5, 9: 24, 10: 30 };
+            const s3 = { 6: 9, 7: 18, 8: 27, 9: 42, 10: 60 };
+            if (s2[ranks.skill2]) list.push({ condition: 'always', triggerRate: s2[ranks.skill2], skill: 2 });
+            if (s3[ranks.skill3]) list.push({ condition: 'ironWallActive', triggerRate: s3[ranks.skill3], skill: 3 });
+            return list;
+          },
+
+          // スキル4：PS連撃強化の累積基礎値への加算（ランク1以上、専7以上で1.5倍）
+          comboCumulativeBaseBonus: (ranks, exLv) => {
+            if (!ranks.skill4 || ranks.skill4 <= 0) return 0;
+            const t = [0.4, 0.8, 1.2, 1.8, 2.4, 3.2, 4, 5.2, 6.4, 8]; // index: rank-1
+            return (t[ranks.skill4 - 1] || 0) * (exLv >= 7 ? 1.5 : 1);
+          },
+          // スキル4：磁気燃焼ダメージ軽減（ランク6以上、ソフィなどと同じ値）
+          magneticBurningReduction: (ranks) => {
+            const table = { 6: 3.75, 7: 7.5, 8: 11.25, 9: 17.5, 10: 25 };
+            return table[ranks.skill4] || 0;
+          }
         }
       },
       'メイメイ': {

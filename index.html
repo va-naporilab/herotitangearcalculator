@@ -491,6 +491,7 @@
         typeAdvantage: 150,
         baseShield: 33,
         silenceCount: 0,
+        enemyWeakenAmount: 0,
         enemyIronWall: '専用5',
         powerDiff: 1.0,
         enemyRushRatio: 0.15,
@@ -776,7 +777,7 @@
 
       const numericBuffKeys = new Set([
         'troops', 'soldierLv', 'life', 'attack', 'damageIncrease', 'damageReduction',
-        'defense', 'typeAdvantage', 'baseShield', 'silenceCount',
+        'defense', 'typeAdvantage', 'baseShield', 'silenceCount', 'enemyWeakenAmount',
         'powerDiff', 'enemyRushRatio', 'enemyPowerDurabilityRatio', 'myPowerDurabilityRatio', 'directDamageRatio', 'enemyASRatio', 'enemyMagneticBurningRatio', 'enemyAbnormalDamageReduction', 'powerDivergenceCoef'
       ]);
       
@@ -1095,6 +1096,7 @@
                     </div>
                   </div>
 
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
                   <div className="form-group">
                     <label className="form-label">敵から受ける沈黙の数</label>
                     <input
@@ -1108,6 +1110,20 @@
                       onBlur={() => handleNumericInputBlur('silenceCount')}
                       className="form-input"
                     />
+                  </div>
+                    <div className="form-group">
+                      <label className="form-label">敵からの衰弱量（平準化）%</label>
+                      <input
+                        type="text"
+                        inputMode="decimal"
+                        min="0"
+                        value={buffs.enemyWeakenAmount ?? 0}
+                        onChange={(e) => updateBuff('enemyWeakenAmount', e.target.value)}
+                        onFocus={() => handleNumericInputFocus('enemyWeakenAmount')}
+                        onBlur={() => handleNumericInputBlur('enemyWeakenAmount')}
+                        className="form-input"
+                      />
+                    </div>
                   </div>
 
                   {/* 追撃依存率と追撃火力重みを横並び */}
@@ -1723,10 +1739,10 @@
                     </div>
                     <div className="result-box">
                       <div className="result-label">
-                        <span>衰弱等耐久補正</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.totalDebuffDurabilityCorrection : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.totalDebuffDurabilityCorrection : 0} />
+                        <span>他複合耐久係数</span>
+                        <IncreaseStack titan={titanEnabled ? calculations.increases.otherCompositeDurabilityCoef : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.otherCompositeDurabilityCoef : 0} />
                       </div>
-                      <div className="result-value value-blue" style={{ fontWeight: 'bold' }}>{formatNumber(calculations.totalDebuffDurabilityCorrection)}</div>
+                      <div className="result-value value-blue" style={{ fontWeight: 'bold' }}>{formatNumber(calculations.otherCompositeDurabilityCoef)}</div>
                     </div>
                   </div>
 
@@ -1856,6 +1872,14 @@
                             燃焼ダメージ依存率
                           </div>
                           <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.burningDependencyRatio)}</div>
+                        </div>
+
+                        {/* 衰弱量（平準化） */}
+                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
+                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                            衰弱量（平準化）
+                          </div>
+                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.weakenAmountLeveled)}%</div>
                         </div>
                       </div>
                     </div>

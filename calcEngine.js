@@ -185,7 +185,7 @@ function calculateAll({
 //  heartbeat : 鼓動の係数が掛かった項目か。鼓動は通常攻撃と連撃にのみ作用する（他のPSには作用しない）
     // ※既存の集計変数への加算はそのまま。各加算の直後に記録だけを足している（計算値には影響しない）
     const damageLedger = [];
-    const damageLedgerMeta = { heartbeatCoeff: 1, heartbeatTargets: ['通常攻撃', '連撃'] };
+    const damageLedgerMeta = { heartbeatCoeff: 1, heartbeatTargets: ['通常攻撃', '連撃', '覚醒:連撃'] };
     const ledgerAdd = ({ hero = null, idx = null, phase, kind, origin, source, value, slot = null }) => {
       const entry = { hero, heroIndex: idx, phase, kind, origin, source, slot, value, heartbeat: false };
       damageLedger.push(entry);
@@ -449,6 +449,18 @@ function calculateAll({
       const attachedDirects = aw.attachedDirects ? (aw.attachedDirects(ranks, exLv, teamCtx) || []) : [];
       const passiveDirects = aw.passiveDirects ? (aw.passiveDirects(ranks, exLv, teamCtx) || []) : [];
 
+      // 連撃系（psCombo を持つ英雄の連撃にだけ作用するローカル効果）
+      const comboCumulativeBaseBonus = aw.comboCumulativeBaseBonus ? (aw.comboCumulativeBaseBonus(ranks, exLv, teamCtx) || 0) : 0;
+      const comboLocalBoost = aw.comboLocalBoost ? (aw.comboLocalBoost(ranks, exLv, teamCtx) || 0) : 0;
+      const comboWeakenResist = aw.comboWeakenResist ? (aw.comboWeakenResist(ranks, exLv, teamCtx) || null) : null;
+      // 連撃回数+1の期待値 = Σ 条件ラウンドの重み和 × 確率（鉄壁ラウンド判定はミヤの再発動と同じマスクを使う）
+      let comboCountBonusExpected = 0;
+      (aw.comboCountBonus ? (aw.comboCountBonus(ranks, exLv, teamCtx) || []) : []).forEach(e => {
+        const mask = reactivationConditionMask[e.condition] || reactivationConditionMask.always;
+        const w = powerRoundWeights.reduce((sum, wt, r) => sum + (mask[r] ? wt : 0), 0);
+        comboCountBonusExpected += w * ((e.triggerRate || 0) / 100);
+      });
+
       // reactivationだけは複数フィールドを持つ記述が必要（鉄壁ラウンド判定・確率補正はエンジン側の役割）
       const reactivationEntries = [];
       if (aw.reactivation) {
@@ -472,6 +484,10 @@ function calculateAll({
         attachedMagnetics,
         attachedDirects,
         passiveDirects,
+        comboCumulativeBaseBonus,
+        comboLocalBoost,
+        comboWeakenResist,
+        comboCountBonusExpected,
         scatterBaseDamageBonus,
         scatterBulletsBonusAw,
         silenceReduction,
@@ -508,7 +524,7 @@ function calculateAll({
     globalBurningBoost += awakeningEffects.reduce((sum, agg) => sum + (agg ? agg.globalBurningBoostFlat : 0), 0);
 
     // 覚醒スキルによる「磁気燃焼ダメージ軽減」の合計（全英雄分の和）
-    // ── 衰弱等耐久補正の計算で使用（下記参照）
+    // ── 他複合耐久係数の計算で使用（下記参照）
     const totalMagneticBurningReduction = awakeningEffects.reduce((sum, agg) => sum + (agg ? agg.magneticBurningReductionSum : 0), 0);
 
     // 鉄壁率 = 有効ラウンドの重み×1 の合計
@@ -1229,8 +1245,8 @@ function calculateAll({
     const magneticBurningReductionDivisor = (1 - enemyMagneticBurningRatio) +
                                              (enemyMagneticBurningRatio / (1 + totalMagneticBurningReduction / 100));
 
-    // 衰弱等耐久補正 = 衰弱耐久補正 × （1 + 重甲効果 + 耐性効果） × 沈黙耐久係数 ÷ 磁気燃焼ダメージ軽減除数
-    const totalDebuffDurabilityCorrection = debuffDurabilityCorrection * 
+    // 他複合耐久係数 = 衰弱耐久補正 × （1 + 重甲効果 + 耐性効果） × 沈黙耐久係数 ÷ 磁気燃焼ダメージ軽減除数
+    const otherCompositeDurabilityCoef = debuffDurabilityCorrection * 
                                              (armorDurabilityCorrection + resistanceDurabilityBonus) *
                                              silenceDurabilityCorrection /
                                              magneticBurningReductionDivisor;
@@ -1423,23 +1439,14 @@ function calculateAll({
       }
     });
 
-    // 3. PS連撃の集計
-    let totalComboExpectedCount = 0;  // 連撃回数期待値
-    const comboContributors = [];
-    heroes.forEach(hero => {
+    // 3. PS連撃を持つ英雄の一覧（連撃ダメージ自体は 5. で英雄ごとに計算する）
+    const comboHeroes = [];
+    heroes.forEach((hero, heroIdx) => {
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
-      
-      if (data.psCombo) {
-        const combo = typeof data.psCombo === 'function' 
-          ? data.psCombo(hero.exclusiveLv) 
-          : data.psCombo;
-        if (combo) {
-          // 連撃回数期待値 = 発動率 × 連撃回数
-          totalComboExpectedCount += combo.rate * combo.count;
-          comboContributors.push({ name: hero.name, idx: heroes.indexOf(hero), w: combo.rate * combo.count });
-        }
-      }
+      if (!data.psCombo) return;
+      const combo = typeof data.psCombo === 'function' ? data.psCombo(hero.exclusiveLv) : data.psCombo;
+      if (combo) comboHeroes.push({ hero, data, heroIdx, combo });
     });
 
     // 4. 通常攻撃強化を適用（常に適用）- enhancedBasicAttackを外部スコープで定義
@@ -1454,26 +1461,47 @@ function calculateAll({
       basicAttackEntry.value = enhancedBasicAttack;
     }
 
-    // 5. 連撃ダメージの計算
+    // 5. 連撃ダメージの計算（英雄ごと）
+    //   連撃ダメージ = 強化後通常攻撃 × 連撃強化/100 × 発動率 × 連撃回数n × 衰弱抵抗係数
+    //   連撃強化 = 100 + グローバル連撃強化 + 累積連撃強化(PS連撃強化) + ローカル連撃強化（すべて加算）
+    //   n = 連撃回数 + 覚醒による増加期待値。累積連撃強化 = 累積基礎値 × a/n（calcCumulativeComboAverage）
+    //   覚醒の増分は「覚醒なしの値」との差として別計上する（origin: awakening）
+    const weakenW = (Number(buffs.enemyWeakenAmount) || 0) / 100;
     let totalComboDamage = 0;  // 鼓動の対象になる連撃ダメージ合計（外部スコープで保持）
-    if (totalComboExpectedCount > 0) {
-      // 連撃ダメージ = (既存通常攻撃 × 通常攻撃強化倍率) × 連撃ダメ強化 × 連撃回数期待値
-      const comboDamage = enhancedBasicAttack * (totalComboBoost / 100) * totalComboExpectedCount;
-      totalComboDamage = comboDamage;
-      
-      // 連撃弾数 = 通常攻撃弾数 × 連撃回数期待値
-      const comboBullets = basicAttackBullets * totalComboExpectedCount;
-      
-      // パッシブダメージに加算
-      totalPSDamage += comboDamage;
-      comboContributors.forEach(c => {
-        ledgerAdd({ hero: c.name, idx: c.idx, phase: 'PS', kind: 'direct', origin: 'hero', source: '連撃', value: comboDamage * c.w / totalComboExpectedCount });
-      });
-      
-      // 直接ダメージに加算（連撃は直接ダメージ属性）
-      totalDirectDamage += comboDamage;
-      totalDirectBullets += comboBullets;
-    }
+    let totalComboExpectedCount = 0;  // 連撃回数期待値（発動率×n の合計）
+    comboHeroes.forEach(({ hero, data, heroIdx, combo }) => {
+      const exLv = hero.exclusiveLv;
+      const agg = awakeningEffects[heroIdx];
+      const calcFor = (withAw) => {
+        const aw = withAw ? agg : null;
+        const n = combo.count + (aw ? aw.comboCountBonusExpected : 0);
+        const cumBase = (data.psComboCumulativeBase ? data.psComboCumulativeBase(exLv) : 0) + (aw ? aw.comboCumulativeBaseBonus : 0);
+        const cumulative = cumBase > 0 ? cumBase * calcCumulativeComboAverage(n) : 0;
+        const local = (data.psComboLocalBoost ? (data.psComboLocalBoost(exLv, teamCtx) || 0) : 0) + (aw ? aw.comboLocalBoost : 0);
+        let resistCoeff = 1;
+        if (aw && aw.comboWeakenResist) {
+          const p = aw.comboWeakenResist.prob;
+          const r = aw.comboWeakenResist.resist / 100;
+          resistCoeff = (1 - p) + p * (1 + weakenW) / (1 + weakenW * (1 - r));
+        }
+        const boost = totalComboBoost + cumulative + local;
+        const count = combo.rate * n;
+        return { n, count, damage: enhancedBasicAttack * (boost / 100) * count * resistCoeff };
+      };
+      const full = calcFor(true);
+      const noAw = agg ? calcFor(false) : full;
+      const awInc = full.damage - noAw.damage;
+
+      totalComboExpectedCount += full.count;
+      totalComboDamage += full.damage;
+      totalPSDamage += full.damage;
+      totalDirectDamage += full.damage;
+      totalDirectBullets += basicAttackBullets * full.count;
+      ledgerAdd({ hero: hero.name, idx: heroIdx, phase: 'PS', kind: 'direct', origin: 'hero', source: '連撃', value: noAw.damage });
+      if (awInc !== 0) {
+        ledgerAdd({ hero: hero.name, idx: heroIdx, phase: 'PS', kind: 'direct', origin: 'awakening', source: '覚醒:連撃', value: awInc });
+      }
+    });
 
     // シャーリーのPS追加ダメージ（復讐と同様：パッシブ＋直接ダメージ＋直接弾数に計上）
     heroes.forEach((hero, heroIdx) => {
@@ -1909,7 +1937,7 @@ function calculateAll({
       totalDirectDamage += heartbeatBoost;
       // 台帳：鼓動が掛かった項目（通常攻撃・連撃）だけ係数を反映し、heartbeat タグを立てる
       damageLedger.forEach(e => {
-        if (e.source === '通常攻撃' || e.source === '連撃') { e.value *= heartbeatCoeff; e.heartbeat = true; }
+        if (e.source === '通常攻撃' || e.source === '連撃' || e.source === '覚醒:連撃') { e.value *= heartbeatCoeff; e.heartbeat = true; }
       });
       damageLedgerMeta.heartbeatCoeff = heartbeatCoeff;
     }
@@ -1918,6 +1946,8 @@ function calculateAll({
       damageIncreaseCoeff = (totalDamageIncreaseBonus + (buffs.damageIncrease + 100)) / (buffs.damageIncrease + 100);
       heroBasePower *= damageIncreaseCoeff;
     }
+    // 敵からの衰弱量（平準化・%入力）を受けた分、基礎英雄火力を (敵からの衰弱量/100 + 1) で除す
+    heroBasePower /= (1 + (Number(buffs.enemyWeakenAmount) || 0) / 100);
     if (totalDamageReductionBonus > 0) {
       damageReductionCoeff = (totalDamageReductionBonus + (buffs.damageReduction + 100)) / (buffs.damageReduction + 100);
       heroBaseDurability *= damageReductionCoeff;
@@ -1997,7 +2027,7 @@ function calculateAll({
 
     const passiveDamage = totalPSDamage;
     const heroPower = heroBasePower * (passiveDamage + totalASDamage) / 100;
-    const heroDurability = heroBaseDurability * ironWallCorrection * totalDebuffDurabilityCorrection;
+    const heroDurability = heroBaseDurability * ironWallCorrection * otherCompositeDurabilityCoef;
     const heroStrength = heroPower * heroDurability;
 
     // ダメージ属性の構造 → 実装は上の damageLedger（各項目にhero/phase/kind/originタグ）を参照
@@ -2057,8 +2087,10 @@ function calculateAll({
       damageLedger: summarizeDamageLedger(damageLedger, damageLedgerMeta),
       ironWallCorrection,
       debuffDurabilityCorrection,
+      // 衰弱量（平準化・%）= (衰弱耐久係数 - 1) × 100
+      weakenAmountLeveled: (debuffDurabilityCorrection - 1) * 100,
       armorDurabilityCorrection,
-      totalDebuffDurabilityCorrection,
+      otherCompositeDurabilityCoef,
       rushRatio,
       directDamagePerBullet,
       directDamageRatio,
@@ -2217,7 +2249,7 @@ function calculateAll({
       totalASDamage: calcIncrease(withTitan.totalASDamage, withoutAwakening.totalASDamage),
       passiveDamage: calcIncrease(withTitan.passiveDamage, withoutAwakening.passiveDamage),
       ironWallCorrection: calcIncrease(withTitan.ironWallCorrection, withoutAwakening.ironWallCorrection),
-      totalDebuffDurabilityCorrection: calcIncrease(withTitan.totalDebuffDurabilityCorrection, withoutAwakening.totalDebuffDurabilityCorrection),
+      otherCompositeDurabilityCoef: calcIncrease(withTitan.otherCompositeDurabilityCoef, withoutAwakening.otherCompositeDurabilityCoef),
       heroPower: calcIncrease(withTitan.heroPower, withoutAwakening.heroPower),
       heroDurability: calcIncrease(withTitan.heroDurability, withoutAwakening.heroDurability),
       heroStrength: calcIncrease(withTitan.heroStrength, withoutAwakening.heroStrength),
@@ -2238,7 +2270,7 @@ function calculateAll({
       ironWallCorrection: calcIncrease(withTitan.ironWallCorrection, withoutTitan.ironWallCorrection),
       debuffDurabilityCorrection: calcIncrease(withTitan.debuffDurabilityCorrection, withoutTitan.debuffDurabilityCorrection),
       armorDurabilityCorrection: calcIncrease(withTitan.armorDurabilityCorrection, withoutTitan.armorDurabilityCorrection),
-      totalDebuffDurabilityCorrection: calcIncrease(withTitan.totalDebuffDurabilityCorrection, withoutTitan.totalDebuffDurabilityCorrection),
+      otherCompositeDurabilityCoef: calcIncrease(withTitan.otherCompositeDurabilityCoef, withoutTitan.otherCompositeDurabilityCoef),
       compatibilityPower: calcIncrease(heroPower_display, withTitan.heroPower),
       compatibilityDurability: calcIncrease(heroDurability_display, withTitan.heroDurability),
       compatibilityStrength: calcIncrease(heroStrength_display, withTitan.heroStrength),
