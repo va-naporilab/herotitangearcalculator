@@ -218,7 +218,7 @@
     const getLatestVersion = (log) =>
       log.filter(l => l.version).map(l => l.version).reduce((m, v) => (m === null || compareVersion(v, m) > 0 ? v : m), null) || 'v0.0.0';
     const APP_VERSION = getLatestVersion(devLog);
-    const APP_TITLE = '英雄タイタン強さ評価ツール';
+    const APP_TITLE = '複合英雄強さ計算ツール';
 
     // 開発ログの1ページあたりの表示件数
     const DEVLOG_PAGE_SIZE = 20;
