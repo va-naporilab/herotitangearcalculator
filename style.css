@@ -413,36 +413,8 @@
       font-weight: 700;
     }
 
-    .awakening-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 6px;
-      border-radius: 999px;
-      background: rgba(148, 163, 184, 0.25);
-      outline: none;
-      cursor: pointer;
-    }
 
-    .awakening-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: #60a5fa;
-      border: 2px solid #1e293b;
-      cursor: pointer;
-    }
 
-    .awakening-slider::-moz-range-thumb {
-      width: 16px;
-      height: 16px;
-      border-radius: 50%;
-      background: #60a5fa;
-      border: 2px solid #1e293b;
-      cursor: pointer;
-    }
 
     .awakening-not-supported {
       font-size: 0.8rem;
@@ -574,3 +546,201 @@
         grid-template-columns: 1fr;
       }
     }
+
+    /* ===== 覚醒スキルランク スライダー：0〜現在ランクの区間を着色（旧index.html内<style>から移行） ===== */
+    .awakening-slider {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 100%;
+      height: 22px;
+      background: transparent;
+      cursor: pointer;
+      --fill: 0%;
+    }
+    .awakening-slider::-webkit-slider-runnable-track {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #facc15 0%, #f59e0b var(--fill), rgba(148,163,184,0.25) var(--fill), rgba(148,163,184,0.25) 100%);
+    }
+    .awakening-slider::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      appearance: none;
+      width: 18px;
+      height: 18px;
+      margin-top: -5px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 4px rgba(245,158,11,0.6);
+    }
+    .awakening-slider::-moz-range-track {
+      height: 8px;
+      border-radius: 999px;
+      background: rgba(148,163,184,0.25);
+    }
+    .awakening-slider::-moz-range-progress {
+      height: 8px;
+      border-radius: 999px;
+      background: linear-gradient(to right, #facc15, #f59e0b);
+    }
+    .awakening-slider::-moz-range-thumb {
+      width: 14px;
+      height: 14px;
+      border-radius: 50%;
+      background: #fff;
+      border: 2px solid #f59e0b;
+      box-shadow: 0 0 4px rgba(245,158,11,0.6);
+    }
+
+    /* 覚醒非対応の英雄：名前と注記を横並び */
+    .awakening-section-inline {
+      display: flex;
+      align-items: baseline;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+    .awakening-section-inline .awakening-hero-name,
+    .awakening-section-inline .awakening-not-supported { margin: 0; }
+    .awakening-section-inline .awakening-not-supported { font-size: 0.75rem; }
+
+    /* ===== 出力コーナー：増分表示 ===== */
+    .increase-stack {
+      display: inline-flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.1rem;
+    }
+    .result-increase-awakening { color: #f472b6; }
+    .increase-row { display: block; font-size: 0.75rem; margin-top: 0.25rem; }
+    .increase-row-awakening { font-size: 0.75rem; margin-top: 0.1rem; }
+    .compat-increase { color: #fbbf24; }
+
+    /* ===== 出力コーナー：結果ボックスのバリエーション ===== */
+    .result-gold-20 { background: linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2)); }
+    .result-gold-30 { background: linear-gradient(to right, rgba(202, 138, 4, 0.3), rgba(234, 179, 8, 0.3)); }
+    .result-gold-40 { background: linear-gradient(to right, rgba(202, 138, 4, 0.4), rgba(234, 179, 8, 0.4)); margin-top: 0.5rem; }
+    .result-box-muted { margin-top: 0.5rem; opacity: 0.8; }
+    .result-box-trait { flex: 1 1 calc(50% - 0.25rem); min-width: 150px; opacity: 0.7; }
+    .result-label-xs { font-size: 0.7rem; }
+    .result-label-sub { font-size: 0.75rem; margin-top: 0.25rem; }
+    .result-value-xs { font-size: 0.875rem; }
+    .result-value-sm { font-size: 1rem; }
+    .result-value-lg { font-size: 1.5rem; }
+    .result-value-xl { font-size: 2rem; font-weight: 900; }
+    .trait-grid { display: flex; flex-wrap: wrap; gap: 0.5rem; }
+
+    /* クリックで説明を表示できる出力項目 */
+    .result-clickable {
+      cursor: pointer;
+      transition: filter 0.2s ease, border-color 0.2s ease;
+    }
+    .result-clickable:hover { filter: brightness(1.2); border-left-color: #93c5fd; }
+    .result-clickable:focus-visible { outline: 2px solid #60a5fa; outline-offset: 2px; }
+
+    /* ===== 説明ポップアップ ===== */
+    .stat-popup-overlay {
+      position: fixed;
+      inset: 0;
+      z-index: 1000;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      background: rgba(2, 6, 23, 0.65);
+      backdrop-filter: blur(3px);
+    }
+    .stat-popup {
+      width: min(92vw, 420px);
+      background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
+      border: 1px solid rgba(59, 130, 246, 0.5);
+      border-radius: 0.75rem;
+      box-shadow: 0 0 30px rgba(59, 130, 246, 0.4);
+      padding: 1.25rem 1.25rem 1rem;
+    }
+    .stat-popup-name { font-size: 1rem; font-weight: 700; color: #93c5fd; }
+    .stat-popup-value { font-size: 1.75rem; font-weight: 700; color: #fde047; margin: 0.15rem 0 0.75rem; }
+    .stat-popup-desc { font-size: 0.95rem; line-height: 1.6; color: #e2e8f0; white-space: pre-wrap; }
+    .stat-popup-desc.pending { color: #64748b; font-style: italic; }
+    .stat-popup-close { display: block; margin: 1rem 0 0 auto; }
+
+    /* ===== 編成メンバー表示・折りたたみサブパネル ===== */
+    .party-strip {
+      display: flex;
+      gap: 0.5rem;
+      margin-bottom: 0.5rem;
+      padding: 0.4rem 0.5rem;
+      background: rgba(15, 23, 42, 0.5);
+      border-radius: 0.375rem;
+      border: 1px solid rgba(99, 102, 241, 0.3);
+    }
+    .party-member { flex: 1; text-align: center; }
+    .party-member-name { font-size: 0.95rem; font-weight: 700; color: #e2e8f0; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+    .party-member-lv { font-size: 0.75rem; color: #94a3b8; margin-top: 0.1rem; }
+
+    .subpanel { margin-top: 0.5rem; border: 1px solid rgba(255,255,255,0.1); border-radius: 0.5rem; overflow: hidden; }
+    .subpanel-header {
+      padding: 0.5rem 0.75rem;
+      cursor: pointer;
+      background: rgba(255,255,255,0.05);
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .subpanel-title { font-size: 0.8rem; font-weight: 600; color: #94a3b8; }
+    .collapse-icon-sm { font-size: 0.875rem; }
+    .subpanel-body { padding: 0; max-height: 0; opacity: 0; overflow: hidden; transition: all 0.3s ease; }
+    .subpanel-body.open { padding: 0.75rem; max-height: 3000px; opacity: 1; }
+
+    /* ===== システム開発ログ ===== */
+    .devlog-row {
+      display: flex;
+      align-items: flex-start;
+      gap: 0.75rem;
+      padding: 0.5rem 0.75rem;
+      border-radius: 0.375rem;
+      font-size: 0.875rem;
+    }
+    .devlog-row:nth-child(odd) { background: rgba(255,255,255,0.03); }
+    .devlog-date { color: #64748b; white-space: nowrap; font-variant-numeric: tabular-nums; }
+    .devlog-version { color: #fbbf24; white-space: nowrap; font-weight: 600; font-variant-numeric: tabular-nums; }
+    .devlog-badge {
+      white-space: nowrap;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      font-size: 0.75rem;
+      font-weight: 600;
+      background: var(--cat-bg);
+      color: var(--cat-fg);
+      border: 1px solid var(--cat-fg);
+    }
+    /* カテゴリー配色（背景は同系色の薄色、文字・枠線は明るい色） */
+    .devlog-cat-feature { --cat-fg: #7dd3fc; --cat-bg: rgba(14, 165, 233, 0.15); }  /* 機能：空色 */
+    .devlog-cat-hero    { --cat-fg: #86efac; --cat-bg: rgba(34, 197, 94, 0.15); }   /* 英雄：緑 */
+    .devlog-cat-balance { --cat-fg: #fca5a5; --cat-bg: rgba(239, 68, 68, 0.15); }   /* バランス：赤 */
+    .devlog-cat-ui      { --cat-fg: #d8b4fe; --cat-bg: rgba(168, 85, 247, 0.15); }  /* UI：紫 */
+    .devlog-cat-fix     { --cat-fg: #fdba74; --cat-bg: rgba(249, 115, 22, 0.15); }  /* 修正：橙 */
+    .devlog-cat-dev     { --cat-fg: #5eead4; --cat-bg: rgba(20, 184, 166, 0.15); }  /* 開発：ティール */
+    .devlog-cat-other   { --cat-fg: #cbd5e1; --cat-bg: rgba(148, 163, 184, 0.15); } /* その他：グレー */
+    .devlog-note { margin-top: 0.75rem; font-size: 0.7rem; color: #64748b; }
+
+    /* ===== フッター（クレジット・注意書き） ===== */
+    .site-footer {
+      margin-top: 2rem;
+      padding: 1rem 1.25rem;
+      border-top: 1px solid rgba(59, 130, 246, 0.3);
+      font-size: 0.8rem;
+      line-height: 1.7;
+      color: #94a3b8;
+      text-align: center;
+    }
+    .site-footer p + p { margin-top: 0.4rem; }
+    .site-footer a { color: #93c5fd; text-decoration: underline; }
+    .footer-notice {
+      display: inline-block;
+      padding: 0.5rem 0.75rem;
+      border: 1px solid rgba(251, 191, 36, 0.35);
+      border-radius: 0.375rem;
+      background: rgba(251, 191, 36, 0.06);
+      color: #fcd34d;
+    }
+    .footer-copyright { color: #64748b; font-size: 0.75rem; }

@@ -16,66 +16,6 @@
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@400;500;700;900&family=Rajdhani:wght@300;400;500;600;700&display=swap" rel="stylesheet">
   <link rel="stylesheet" href="style.css">
-  <style>
-    /* 覚醒スキルランク スライダー：0〜現在ランクの区間を着色 */
-    .awakening-slider {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 100%;
-      height: 22px;
-      background: transparent;
-      cursor: pointer;
-      --fill: 0%;
-    }
-    .awakening-slider::-webkit-slider-runnable-track {
-      height: 8px;
-      border-radius: 999px;
-      background: linear-gradient(to right, #facc15 0%, #f59e0b var(--fill), rgba(148,163,184,0.25) var(--fill), rgba(148,163,184,0.25) 100%);
-    }
-    .awakening-slider::-webkit-slider-thumb {
-      -webkit-appearance: none;
-      appearance: none;
-      width: 18px;
-      height: 18px;
-      margin-top: -5px;
-      border-radius: 50%;
-      background: #fff;
-      border: 2px solid #f59e0b;
-      box-shadow: 0 0 4px rgba(245,158,11,0.6);
-    }
-    .awakening-slider::-moz-range-track {
-      height: 8px;
-      border-radius: 999px;
-      background: rgba(148,163,184,0.25);
-    }
-    .awakening-slider::-moz-range-progress {
-      height: 8px;
-      border-radius: 999px;
-      background: linear-gradient(to right, #facc15, #f59e0b);
-    }
-    .awakening-slider::-moz-range-thumb {
-      width: 14px;
-      height: 14px;
-      border-radius: 50%;
-      background: #fff;
-      border: 2px solid #f59e0b;
-      box-shadow: 0 0 4px rgba(245,158,11,0.6);
-    }
-    /* 覚醒非対応の英雄：名前と注記を横並び */
-    .awakening-section-inline {
-      display: flex;
-      align-items: baseline;
-      gap: 0.75rem;
-      flex-wrap: wrap;
-    }
-    .awakening-section-inline .awakening-hero-name,
-    .awakening-section-inline .awakening-not-supported {
-      margin: 0;
-    }
-    .awakening-section-inline .awakening-not-supported {
-      font-size: 0.75rem;
-    }
-  </style>
 </head>
 <body>
   <div id="root"></div>
@@ -221,10 +161,34 @@
       const showA = parseFloat(awakening) > 0;
       if (!showT && !showA) return null;
       return (
-        <span style={{ display: 'inline-flex', flexDirection: 'column', alignItems: 'flex-end', gap: '0.1rem' }}>
+        <span className="increase-stack">
           {showT && <span className="result-increase">ﾀｲﾀﾝ +{titan}%</span>}
-          {showA && <span className="result-increase" style={{ color: '#f472b6' }} title="覚醒ON/OFFでの増分">覚醒 +{awakening}%</span>}
+          {showA && <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{awakening}%</span>}
         </span>
+      );
+    }
+
+    // ===== 出力項目の説明ポップアップ =====
+    // 説明文は constants.js の statDescriptions を参照。背景クリック・Escで閉じる。
+    function StatPopup({ info, onClose }) {
+      React.useEffect(() => {
+        if (!info) return;
+        const onKey = (e) => { if (e.key === 'Escape') onClose(); };
+        window.addEventListener('keydown', onKey);
+        return () => window.removeEventListener('keydown', onKey);
+      }, [info]);
+      if (!info) return null;
+      const d = statDescriptions[info.key] || { name: info.key, desc: STAT_DESC_PENDING };
+      const desc = d.desc || STAT_DESC_PENDING;
+      return (
+        <div className="stat-popup-overlay" onClick={onClose}>
+          <div className="stat-popup" role="dialog" aria-modal="true" onClick={(e) => e.stopPropagation()}>
+            <div className="stat-popup-name">{d.name}</div>
+            <div className="stat-popup-value">{info.value}</div>
+            <div className={`stat-popup-desc ${desc === STAT_DESC_PENDING ? 'pending' : ''}`}>{desc}</div>
+            <button className="btn btn-secondary stat-popup-close" onClick={onClose}>閉じる</button>
+          </div>
+        </div>
       );
     }
 
@@ -591,6 +555,15 @@
         2: false
       });
       
+      // 出力項目クリック → 説明ポップアップ
+      const [statPopup, setStatPopup] = useState(null);
+      const statProps = (key, value) => ({
+        role: 'button',
+        tabIndex: 0,
+        onClick: () => setStatPopup({ key, value }),
+        onKeyDown: (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setStatPopup({ key, value }); } }
+      });
+
       const toggleTab = (tabName) => {
         setExpandedTabs(prev => ({...prev, [tabName]: !prev[tabName]}));
       };
@@ -1684,11 +1657,11 @@
                 <div className={`card-content ${!expandedTabs.heroCalc ? 'hidden' : ''}`}>
                   <div className="space-y-2">
                   {/* 編成メンバー表示 */}
-                  <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '0.5rem', padding: '0.4rem 0.5rem', background: 'rgba(15,23,42,0.5)', borderRadius: '0.375rem', border: '1px solid rgba(99,102,241,0.3)' }}>
+                  <div className="party-strip">
                     {heroes.map((hero, i) => (
-                      <div key={i} style={{ flex: 1, textAlign: 'center' }}>
-                        <div style={{ fontSize: '0.95rem', fontWeight: '700', color: '#e2e8f0', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{hero.name}</div>
-                        <div style={{ fontSize: '0.75rem', color: '#94a3b8', marginTop: '0.1rem' }}>
+                      <div key={i} className="party-member">
+                        <div className="party-member-name">{hero.name}</div>
+                        <div className="party-member-lv">
                           {hero.exclusiveLv === 0 ? '専用なし' : hero.exclusiveLv === 3 ? '専用３' : hero.exclusiveLv === 5 ? '専用５' : '専用７'}
                         </div>
                       </div>
@@ -1696,14 +1669,14 @@
                   </div>
                   {/* 火力と耐久の項目を2列並び */}
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('heroBasePower', formatNumber(calculations.heroBasePower) + '倍')}>
                       <div className="result-label">
                         <span>基礎英雄火力</span>
                         <IncreaseStack titan={titanEnabled ? calculations.increases.heroBasePower : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroBasePower : 0} />
                       </div>
                       <div className="result-value value-red">{formatNumber(calculations.heroBasePower)}倍</div>
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('heroBaseDurability', formatNumber(calculations.heroBaseDurability) + '倍')}>
                       <div className="result-label">
                         <span>基礎英雄耐久</span>
                         <IncreaseStack titan={titanEnabled ? calculations.increases.heroBaseDurability : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroBaseDurability : 0} />
@@ -1713,14 +1686,14 @@
                   </div>
 
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('totalASDamage', formatNumber(calculations.totalASDamage) + '%')}>
                       <div className="result-label">
                         <span>追撃総ダメージ</span>
                         <IncreaseStack titan={titanEnabled ? calculations.increases.totalASDamage : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.totalASDamage : 0} />
                       </div>
                       <div className="result-value value-yellow">{formatNumber(calculations.totalASDamage)}%</div>
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('passiveDamage', formatNumber(calculations.passiveDamage) + '%')}>
                       <div className="result-label">
                         <span>パッシブダメージ</span>
                         <IncreaseStack titan={titanEnabled ? calculations.increases.passiveDamage : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.passiveDamage : 0} />
@@ -1730,14 +1703,14 @@
                   </div>
 
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('ironWallCorrection', formatNumber(calculations.ironWallCorrection))}>
                       <div className="result-label">
                         <span>鉄壁耐久補正</span>
                         <IncreaseStack titan={titanEnabled ? calculations.increases.ironWallCorrection : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.ironWallCorrection : 0} />
                       </div>
                       <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('otherCompositeDurabilityCoef', formatNumber(calculations.otherCompositeDurabilityCoef))}>
                       <div className="result-label">
                         <span>他複合耐久係数</span>
                         <IncreaseStack titan={titanEnabled ? calculations.increases.otherCompositeDurabilityCoef : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.otherCompositeDurabilityCoef : 0} />
@@ -1747,45 +1720,45 @@
                   </div>
 
                   {/* 强调項目 */}
-                  <div className="result-box result-highlight">
+                  <div className="result-box result-highlight result-clickable" {...statProps('heroPower', formatNumber(calculations.heroPower_display) + '倍')}>
                     <div className="result-label">
                       <span>英雄火力</span>
                       <IncreaseStack titan={titanEnabled ? calculations.increases.heroPower : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroPower : 0} />
                     </div>
-                    <div className="result-value value-red" style={{ fontSize: '1.5rem' }}>
+                    <div className="result-value result-value-lg value-red">
                       {formatNumber(calculations.heroPower_display)}倍
                     </div>
                     {calculations.increases.compatibilityPower > 0 && (
-                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityPower}%</span>
+                      <div className="result-label result-label-sub">
+                        <span className="compat-increase">相性増分 +{calculations.increases.compatibilityPower}%</span>
                       </div>
                     )}
                   </div>
-                  <div className="result-box result-highlight-green">
+                  <div className="result-box result-highlight-green result-clickable" {...statProps('heroDurability', formatNumber(calculations.heroDurability_display) + '倍')}>
                     <div className="result-label">
                       <span>英雄耐久</span>
                       <IncreaseStack titan={titanEnabled ? calculations.increases.heroDurability : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroDurability : 0} />
                     </div>
-                    <div className="result-value value-green" style={{ fontSize: '1.5rem' }}>
+                    <div className="result-value result-value-lg value-green">
                       {formatNumber(calculations.heroDurability_display)}倍
                     </div>
                     {calculations.increases.compatibilityDurability > 0 && (
-                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityDurability}%</span>
+                      <div className="result-label result-label-sub">
+                        <span className="compat-increase">相性増分 +{calculations.increases.compatibilityDurability}%</span>
                       </div>
                     )}
                   </div>
-                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.3), rgba(234, 179, 8, 0.3))' }}>
+                  <div className="result-box result-gold-30 result-clickable" {...statProps('heroStrength', formatNumber(calculations.heroStrength_display))}>
                     <div className="result-label">
                       <span>英雄強さ値</span>
                       <IncreaseStack titan={titanEnabled ? calculations.increases.heroStrength : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroStrength : 0} />
                     </div>
-                    <div className="result-value value-yellow" style={{ fontSize: '1.5rem' }}>
+                    <div className="result-value result-value-lg value-yellow">
                       {formatNumber(calculations.heroStrength_display)}
                     </div>
                     {calculations.increases.compatibilityStrength > 0 && (
-                      <div className="result-label" style={{ fontSize: '0.75rem', marginTop: '0.25rem' }}>
-                        <span style={{ color: '#fbbf24' }}>相性増分 +{calculations.increases.compatibilityStrength}%</span>
+                      <div className="result-label result-label-sub">
+                        <span className="compat-increase">相性増分 +{calculations.increases.compatibilityStrength}%</span>
                       </div>
                     )}
                   </div>
@@ -1800,86 +1773,68 @@
                   />
 
                   {/* 編成の特性値（折りたたみ可能） */}
-                  <div style={{ marginTop: '0.5rem', border: '1px solid rgba(255,255,255,0.1)', borderRadius: '0.5rem', overflow: 'hidden' }}>
-                    <div 
-                      onClick={() => toggleTab('heroCalcDetail')}
-                      style={{ 
-                        padding: '0.5rem 0.75rem', 
-                        cursor: 'pointer', 
-                        background: 'rgba(255,255,255,0.05)',
-                        display: 'flex',
-                        justifyContent: 'space-between',
-                        alignItems: 'center'
-                      }}
-                    >
-                      <span style={{ fontSize: '0.8rem', fontWeight: 600, color: '#94a3b8' }}>編成の特性値</span>
-                      <span className={`collapse-icon ${!expandedTabs.heroCalcDetail ? 'collapsed' : ''}`} style={{ fontSize: '0.875rem' }}>▼</span>
+                  <div className="subpanel">
+                    <div className="subpanel-header" onClick={() => toggleTab('heroCalcDetail')}>
+                      <span className="subpanel-title">編成の特性値</span>
+                      <span className={`collapse-icon collapse-icon-sm ${!expandedTabs.heroCalcDetail ? 'collapsed' : ''}`}>▼</span>
                     </div>
-                    <div 
-                      style={{ 
-                        padding: expandedTabs.heroCalcDetail ? '0.75rem' : 0,
-                        maxHeight: expandedTabs.heroCalcDetail ? '3000px' : '0',
-                        opacity: expandedTabs.heroCalcDetail ? 1 : 0,
-                        overflow: 'hidden',
-                        transition: 'all 0.3s ease'
-                      }}
-                    >
+                    <div className={`subpanel-body ${expandedTabs.heroCalcDetail ? 'open' : ''}`}>
                       {/* 追撃火力比率・直接ダメージ関連（2列表示） */}
-                      <div style={{ display: 'flex', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <div className="trait-grid">
                         {/* 追撃１発の火力重み */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('rushRatio', formatNumber(calculations.rushRatio))}>
+                          <div className="result-label result-label-xs">
                             追撃１発の火力重み
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.rushRatio)}</div>
                         </div>
                         
                         {/* 直接攻撃１発の平均ダメージ */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('directDamagePerBullet', formatNumber(calculations.directDamagePerBullet) + '%')}>
+                          <div className="result-label result-label-xs">
                             直接攻撃１発の平均ダメージ
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamagePerBullet)}%</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.directDamagePerBullet)}%</div>
                         </div>
                         
                         {/* 直接攻撃１発の火力重み */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('directDamageRatio', formatNumber(calculations.directDamageRatio))}>
+                          <div className="result-label result-label-xs">
                             直接攻撃１発の火力重み
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.directDamageRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.directDamageRatio)}</div>
                         </div>
                         
                         {/* 追撃依存率 */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('rushDependencyRatio', formatNumber(calculations.rushDependencyRatio))}>
+                          <div className="result-label result-label-xs">
                             追撃依存率
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.rushDependencyRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.rushDependencyRatio)}</div>
                         </div>
 
                         {/* 磁気ダメージ依存率 */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('magneticDependencyRatio', formatNumber(calculations.magneticDependencyRatio))}>
+                          <div className="result-label result-label-xs">
                             磁気ダメージ依存率
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.magneticDependencyRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.magneticDependencyRatio)}</div>
                         </div>
 
                         {/* 燃焼ダメージ依存率 */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('burningDependencyRatio', formatNumber(calculations.burningDependencyRatio))}>
+                          <div className="result-label result-label-xs">
                             燃焼ダメージ依存率
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.burningDependencyRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.burningDependencyRatio)}</div>
                         </div>
 
                         {/* 衰弱量（平準化） */}
-                        <div className="result-box" style={{ flex: '1 1 calc(50% - 0.25rem)', minWidth: '150px', opacity: '0.7' }}>
-                          <div className="result-label" style={{ fontSize: '0.7rem' }}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('weakenAmountLeveled', formatNumber(calculations.weakenAmountLeveled) + '%')}>
+                          <div className="result-label result-label-xs">
                             衰弱量（平準化）
                           </div>
-                          <div className="result-value" style={{ fontSize: '0.875rem' }}>{formatNumber(calculations.weakenAmountLeveled)}%</div>
+                          <div className="result-value result-value-xs">{formatNumber(calculations.weakenAmountLeveled)}%</div>
                         </div>
                       </div>
                     </div>
@@ -1897,13 +1852,13 @@
                   <div className="space-y-2">
                   {/* 耐久と火力を2列並び */}
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('compatDurability', formatNumber(calculations.compatDurability))}>
                       <div className="result-label">
                         バフ相性耐久
                       </div>
                       <div className="result-value value-green">{formatNumber(calculations.compatDurability)}</div>
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('compatPower', formatNumber(calculations.compatPower))}>
                       <div className="result-label">
                         バフ相性火力
                       </div>
@@ -1912,22 +1867,22 @@
                   </div>
                   
                   {/* 強さ値（強調） */}
-                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
+                  <div className="result-box result-gold-20 result-clickable" {...statProps('compatStrength', formatNumber(calculations.compatStrength))}>
                     <div className="result-label">
                       バフ相性強さ値
                     </div>
-                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatStrength)}</div>
+                    <div className="result-value value-yellow">{formatNumber(calculations.compatStrength)}</div>
                   </div>
                   
                   {/* 出撃耐久と火力を2列並び */}
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('compatTroopDurability', formatNumber(calculations.compatTroopDurability))}>
                       <div className="result-label">
                         バフ相性出撃耐久
                       </div>
                       <div className="result-value value-green">{formatNumber(calculations.compatTroopDurability)}</div>
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('compatTroopPower', formatNumber(calculations.compatTroopPower))}>
                       <div className="result-label">
                         バフ相性出撃火力
                       </div>
@@ -1936,22 +1891,22 @@
                   </div>
                   
                   {/* 出撃強さ値（強調） */}
-                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
+                  <div className="result-box result-gold-20 result-clickable" {...statProps('compatTroopStrength', formatNumber(calculations.compatTroopStrength))}>
                     <div className="result-label">
                       バフ相性出撃強さ値
                     </div>
-                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopStrength)}</div>
+                    <div className="result-value value-yellow">{formatNumber(calculations.compatTroopStrength)}</div>
                   </div>
                   
                   {/* 兵士耐久と火力を2列並び */}
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('compatTroopSoldierDurability', formatNumber(calculations.compatTroopSoldierDurability))}>
                       <div className="result-label">
                         バフ相性出撃兵士耐久
                       </div>
                       <div className="result-value value-green">{formatNumber(calculations.compatTroopSoldierDurability)}</div>
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('compatTroopSoldierPower', formatNumber(calculations.compatTroopSoldierPower))}>
                       <div className="result-label">
                         バフ相性出撃兵士火力
                       </div>
@@ -1960,11 +1915,11 @@
                   </div>
                   
                   {/* 兵士強さ値（強調） */}
-                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.2), rgba(234, 179, 8, 0.2))' }}>
+                  <div className="result-box result-gold-20 result-clickable" {...statProps('compatTroopSoldierStrength', formatNumber(calculations.compatTroopSoldierStrength))}>
                     <div className="result-label">
                       バフ相性出撃兵士強さ値
                     </div>
-                    <div className="result-value value-yellow" style={{ fontSize: '1.25rem' }}>{formatNumber(calculations.compatTroopSoldierStrength)}</div>
+                    <div className="result-value value-yellow">{formatNumber(calculations.compatTroopSoldierStrength)}</div>
                   </div>
                 </div>
                 </div>
@@ -1980,85 +1935,85 @@
                   <div className="space-y-2">
                   {/* 総合耐久と総合火力を2列並び */}
                   <div className="result-grid-2">
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('totalDurability', formatNumber(calculations.totalDurability))}>
                       <div className="result-label">
                         <span>総合耐久</span>
                       </div>
-                      <div className="result-value value-green" style={{ fontSize: '1.25rem' }}>
+                      <div className="result-value value-green">
                         {formatNumber(calculations.totalDurability)}
                       </div>
                       {(titanEnabled && calculations.increases.totalDurability > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0) ? (
-                        <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <div className="increase-row">
                           {titanEnabled && calculations.increases.totalDurability > 0 && (
                             <span className="result-increase">+{calculations.increases.totalDurability}%</span>
                           )}
                           {compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0 && (
-                            <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
+                            <span className="compat-increase"> {titanEnabled && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
                           )}
                         </div>
                       ) : null}
                       {awakeningEnabled && calculations.awakeningIncreases.totalDurability > 0 && (
-                        <div style={{ fontSize: '0.75rem', marginTop: '0.1rem' }}>
-                          <span className="result-increase" style={{ color: '#f472b6' }} title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalDurability}%</span>
+                        <div className="increase-row-awakening">
+                          <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalDurability}%</span>
                         </div>
                       )}
                     </div>
-                    <div className="result-box">
+                    <div className="result-box result-clickable" {...statProps('totalPower', formatNumber(calculations.totalPower))}>
                       <div className="result-label">
                         <span>総合火力</span>
                       </div>
-                      <div className="result-value value-red" style={{ fontSize: '1.25rem' }}>
+                      <div className="result-value value-red">
                         {formatNumber(calculations.totalPower)}
                       </div>
                       {(titanEnabled && calculations.increases.totalPower > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0) ? (
-                        <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                        <div className="increase-row">
                           {titanEnabled && calculations.increases.totalPower > 0 && (
                             <span className="result-increase">+{calculations.increases.totalPower}%</span>
                           )}
                           {compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0 && (
-                            <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
+                            <span className="compat-increase"> {titanEnabled && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
                           )}
                         </div>
                       ) : null}
                       {awakeningEnabled && calculations.awakeningIncreases.totalPower > 0 && (
-                        <div style={{ fontSize: '0.75rem', marginTop: '0.1rem' }}>
-                          <span className="result-increase" style={{ color: '#f472b6' }} title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalPower}%</span>
+                        <div className="increase-row-awakening">
+                          <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalPower}%</span>
                         </div>
                       )}
                     </div>
                   </div>
 
                   {/* 編成総合強さ値（大きく強調） */}
-                  <div className="result-box" style={{ background: 'linear-gradient(to right, rgba(202, 138, 4, 0.4), rgba(234, 179, 8, 0.4))', marginTop: '0.5rem' }}>
+                  <div className="result-box result-gold-40 result-clickable" {...statProps('totalStrength', formatNumber(calculations.totalStrength))}>
                     <div className="result-label">
                       <span>編成総合強さ値</span>
                     </div>
-                    <div className="result-value value-yellow" style={{ fontSize: '2rem', fontWeight: '900' }}>
+                    <div className="result-value result-value-xl value-yellow">
                       {formatNumber(calculations.totalStrength)}
                     </div>
                     {(titanEnabled && calculations.increases.totalStrength > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0) ? (
-                      <div style={{ display: 'block', fontSize: '0.75rem', marginTop: '0.25rem' }}>
+                      <div className="increase-row">
                         {titanEnabled && calculations.increases.totalStrength > 0 && (
                           <span className="result-increase">+{calculations.increases.totalStrength}%</span>
                         )}
                         {compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0 && (
-                          <span style={{ color: '#fbbf24' }}> {titanEnabled && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
+                          <span className="compat-increase"> {titanEnabled && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
                         )}
                       </div>
                     ) : null}
                     {awakeningEnabled && calculations.awakeningIncreases.totalStrength > 0 && (
-                      <div style={{ fontSize: '0.75rem', marginTop: '0.1rem' }}>
-                        <span className="result-increase" style={{ color: '#f472b6' }} title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalStrength}%</span>
+                      <div className="increase-row-awakening">
+                        <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalStrength}%</span>
                       </div>
                     )}
                   </div>
 
                   {/* 編成の火力耐久比 */}
-                  <div className="result-box" style={{ marginTop: '0.5rem', opacity: '0.8' }}>
-                    <div className="result-label" style={{ fontSize: '0.875rem' }}>
+                  <div className="result-box result-box-muted result-clickable" {...statProps('powerDurabilityRatio', formatNumber(calculations.powerDurabilityRatio))}>
+                    <div className="result-label">
                       編成の火力耐久比
                     </div>
-                    <div className="result-value" style={{ fontSize: '1rem' }}>
+                    <div className="result-value result-value-sm">
                       {formatNumber(calculations.powerDurabilityRatio)}
                     </div>
                   </div>
@@ -2077,56 +2032,40 @@
             <div className={`card-content ${!expandedTabs.devLog ? 'hidden' : ''}`}>
               <div className="space-y-2">
                 {devLog.map((log, i) => (
-                  <div
-                    key={i}
-                    style={{
-                      display: 'flex',
-                      alignItems: 'flex-start',
-                      gap: '0.75rem',
-                      padding: '0.5rem 0.75rem',
-                      background: i % 2 === 0 ? 'rgba(255,255,255,0.03)' : 'transparent',
-                      borderRadius: '0.375rem',
-                      fontSize: '0.875rem'
-                    }}
-                  >
-                    <span style={{ color: '#64748b', whiteSpace: 'nowrap', fontVariantNumeric: 'tabular-nums' }}>
-                      {log.date}
-                    </span>
-                    {log.version && (
-                      <span style={{ color: '#fbbf24', whiteSpace: 'nowrap', fontWeight: 600, fontVariantNumeric: 'tabular-nums' }}>
-                        {log.version}
-                      </span>
-                    )}
-                    <span
-                      style={{
-                        whiteSpace: 'nowrap',
-                        padding: '0.1rem 0.5rem',
-                        borderRadius: '999px',
-                        fontSize: '0.75rem',
-                        fontWeight: 600,
-                        background:
-                          log.category === '英雄' ? 'rgba(34, 197, 94, 0.15)' :
-                          log.category === 'バランス' ? 'rgba(239, 68, 68, 0.15)' :
-                          log.category === 'UI' ? 'rgba(168, 85, 247, 0.15)' :
-                          'rgba(59, 130, 246, 0.15)',
-                        color:
-                          log.category === '英雄' ? '#86efac' :
-                          log.category === 'バランス' ? '#fca5a5' :
-                          log.category === 'UI' ? '#d8b4fe' :
-                          '#93c5fd'
-                      }}
-                    >
-                      {log.category}
-                    </span>
+                  <div key={i} className="devlog-row">
+                    <span className="devlog-date">{log.date}</span>
+                    {log.version && <span className="devlog-version">{log.version}</span>}
+                    <span className={`devlog-badge devlog-cat-${devLogCategoryClass[log.category] || 'other'}`}>{log.category}</span>
                     <span>{log.text}</span>
                   </div>
                 ))}
               </div>
-              <div style={{ marginTop: '0.75rem', fontSize: '0.7rem', color: '#64748b' }}>
-                ※ このログはコード内の <code>devLog</code> 配列を直接編集することで更新できます（先頭に追加＝最新表示）。
+              <div className="devlog-note">
+                ※ このログは constants.js の <code>devLog</code> 配列を直接編集することで更新できます（先頭に追加＝最新表示）。
               </div>
             </div>
           </div>
+
+          {/* クレジット・注意書き（文言は constants.js の footerInfo） */}
+          <footer className="site-footer">
+            <p className="footer-notice">{footerInfo.notice}</p>
+            <p>
+              {footerInfo.contactLead}{' '}
+              {footerInfo.contacts.map((ct, i) => (
+                <React.Fragment key={ct.label}>
+                  {i > 0 && ' または '}
+                  {ct.url
+                    ? <a href={ct.url} target="_blank" rel="noopener noreferrer">{ct.label}（{ct.id}）</a>
+                    : <span>{ct.label}（{ct.id}）</span>}
+                </React.Fragment>
+              ))}
+              {footerInfo.contactTail}
+            </p>
+            {footerInfo.credits.map((t, i) => <p key={i}>{t}</p>)}
+            <p className="footer-copyright">{footerInfo.copyright}</p>
+          </footer>
+
+          <StatPopup info={statPopup} onClose={() => setStatPopup(null)} />
         </div>
       );
     }
