@@ -5,7 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <link rel="icon" href="NAPOfavicon.png" type="image/png">
 
-  <title>英雄タイタン強さ評価ツール v2.0 Phase 3</title>
+  <title>英雄タイタン強さ評価ツール</title>
   <script src="heroData.js"></script>
   <script src="constants.js"></script>
   <script src="calcEngine.js"></script>
@@ -165,6 +165,18 @@
           {showT && <span className="result-increase">ﾀｲﾀﾝ +{titan}%</span>}
           {showA && <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{awakening}%</span>}
         </span>
+      );
+    }
+
+    // ===== 増分表示トグル（タイタン／覚醒トグル行の右側に表示） =====
+    function IncreaseToggle({ value, onChange }) {
+      return (
+        <div className="increase-toggle" onClick={() => onChange(!value)}>
+          <span className="increase-toggle-label">増分表示: {value ? 'ON' : 'OFF'}</span>
+          <div className={`toggle-switch toggle-switch-sm ${value ? 'active' : ''}`}>
+            <div className="toggle-slider"></div>
+          </div>
+        </div>
       );
     }
 
@@ -483,6 +495,15 @@
       const [titanEnabled, setTitanEnabled] = useState(DEFAULT_TITAN_ENABLED);
       // 覚醒ON/OFF。OFF＝覚醒実装前の状態＝全スキルランク0と同義（スライダー値はそのまま保持し、計算にのみ反映しない）
       const [awakeningEnabled, setAwakeningEnabled] = useState(true);
+      // 増分表示のON/OFF（タイタン／覚醒それぞれ。初期ON。効果自体がOFFのときはトグル非表示・増分も出さない）
+      const [titanIncreaseVisible, setTitanIncreaseVisible] = useState(true);
+      const [awakeningIncreaseVisible, setAwakeningIncreaseVisible] = useState(true);
+      // 開発ログのページ（0＝最新ページ）
+      const [devLogPage, setDevLogPage] = useState(0);
+      // タブ（ブラウザ）タイトルのバージョン表記も devLog の最新バージョンに自動追従
+      React.useEffect(() => { document.title = `${APP_TITLE} ${APP_VERSION}`; }, []);
+      const showTitanInc = titanEnabled && titanIncreaseVisible;
+      const showAwakeningInc = awakeningEnabled && awakeningIncreaseVisible;
       
       // ラウンド重み係数
       const [powerRoundWeights, setPowerRoundWeights] = useState(getDefaultPowerRoundWeights('専用5'));
@@ -611,6 +632,8 @@
         compatibility,
         titanEnabled,
         awakeningEnabled,
+        titanIncreaseVisible,
+        awakeningIncreaseVisible,
         powerRoundWeights,
         durabilityRoundWeights,
         heroes,
@@ -629,6 +652,8 @@
         }
         if (typeof state.titanEnabled === 'boolean') setTitanEnabled(state.titanEnabled);
         if (typeof state.awakeningEnabled === 'boolean') setAwakeningEnabled(state.awakeningEnabled);
+        if (typeof state.titanIncreaseVisible === 'boolean') setTitanIncreaseVisible(state.titanIncreaseVisible);
+        if (typeof state.awakeningIncreaseVisible === 'boolean') setAwakeningIncreaseVisible(state.awakeningIncreaseVisible);
         if (state.powerRoundWeights) setPowerRoundWeights(state.powerRoundWeights);
         if (state.durabilityRoundWeights) setDurabilityRoundWeights(state.durabilityRoundWeights);
         if (state.heroes) setHeroes(state.heroes);
@@ -674,7 +699,7 @@
           console.error('自動保存に失敗しました', e);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
-      }, [buffs, compatibility, titanEnabled, awakeningEnabled, powerRoundWeights, durabilityRoundWeights, heroes, defaultExclusiveLv, titanEquip, awakening]);
+      }, [buffs, compatibility, titanEnabled, awakeningEnabled, titanIncreaseVisible, awakeningIncreaseVisible, powerRoundWeights, durabilityRoundWeights, heroes, defaultExclusiveLv, titanEquip, awakening]);
 
       // 名前付きスロットへの保存（上書き時は確認）
       const saveToSlot = (slotName, forceOverwrite = false) => {
@@ -736,6 +761,8 @@
         setCompatibility(DEFAULT_COMPATIBILITY);
         setTitanEnabled(DEFAULT_TITAN_ENABLED);
         setAwakeningEnabled(true);
+        setTitanIncreaseVisible(true);
+        setAwakeningIncreaseVisible(true);
         setPowerRoundWeights(getDefaultPowerRoundWeights(DEFAULT_BUFFS.enemyIronWall));
         setDurabilityRoundWeights(defaultDurabilityRoundWeights);
         const resetHeroes = DEFAULT_HEROES.map(h => ({ ...h }));
@@ -828,7 +855,7 @@
             <h1>
               <CalculatorIcon />
               英雄タイタン強さ評価ツール
-              <span className="version-badge">v1.9.0</span>
+              <span className="version-badge">{APP_VERSION}</span>
             </h1>
             <p>by Napo  feat.Sonnet</p>
           </div>
@@ -1497,6 +1524,7 @@
                   <span className="toggle-label">
                     タイタン効果: {titanEnabled ? 'ON' : 'OFF'}
                   </span>
+                  {titanEnabled && <IncreaseToggle value={titanIncreaseVisible} onChange={setTitanIncreaseVisible} />}
                 </div>
 
                 <div className="space-y-6">
@@ -1586,6 +1614,7 @@
                     <span className="toggle-label">
                       覚醒効果: {awakeningEnabled ? 'ON' : 'OFF'}
                     </span>
+                    {awakeningEnabled && <IncreaseToggle value={awakeningIncreaseVisible} onChange={setAwakeningIncreaseVisible} />}
                   </div>
 
                   <div className="space-y-6" style={{ opacity: awakeningEnabled ? 1 : 0.5, pointerEvents: awakeningEnabled ? 'auto' : 'none' }}>
@@ -1669,64 +1698,64 @@
                   </div>
                   {/* 火力と耐久の項目を2列並び */}
                   <div className="result-grid-2">
-                    <div className="result-box result-clickable" {...statProps('heroBasePower', formatNumber(calculations.heroBasePower) + '倍')}>
+                    <div className="result-box result-clickable" {...statProps('heroBasePower', formatNumberPlain(calculations.heroBasePower) + '倍')}>
                       <div className="result-label">
                         <span>基礎英雄火力</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.heroBasePower : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroBasePower : 0} />
+                        <IncreaseStack titan={showTitanInc ? calculations.increases.heroBasePower : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.heroBasePower : 0} />
                       </div>
-                      <div className="result-value value-red">{formatNumber(calculations.heroBasePower)}倍</div>
+                      <div className="result-value value-red">{formatNumberPlain(calculations.heroBasePower)}倍</div>
                     </div>
-                    <div className="result-box result-clickable" {...statProps('heroBaseDurability', formatNumber(calculations.heroBaseDurability) + '倍')}>
+                    <div className="result-box result-clickable" {...statProps('heroBaseDurability', formatNumberPlain(calculations.heroBaseDurability) + '倍')}>
                       <div className="result-label">
                         <span>基礎英雄耐久</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.heroBaseDurability : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroBaseDurability : 0} />
+                        <IncreaseStack titan={showTitanInc ? calculations.increases.heroBaseDurability : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.heroBaseDurability : 0} />
                       </div>
-                      <div className="result-value value-green">{formatNumber(calculations.heroBaseDurability)}倍</div>
+                      <div className="result-value value-green">{formatNumberPlain(calculations.heroBaseDurability)}倍</div>
                     </div>
                   </div>
 
                   <div className="result-grid-2">
-                    <div className="result-box result-clickable" {...statProps('totalASDamage', formatNumber(calculations.totalASDamage) + '%')}>
+                    <div className="result-box result-clickable" {...statProps('totalASDamage', formatNumberPlain(calculations.totalASDamage) + '%')}>
                       <div className="result-label">
                         <span>追撃総ダメージ</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.totalASDamage : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.totalASDamage : 0} />
+                        <IncreaseStack titan={showTitanInc ? calculations.increases.totalASDamage : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.totalASDamage : 0} />
                       </div>
-                      <div className="result-value value-yellow">{formatNumber(calculations.totalASDamage)}%</div>
+                      <div className="result-value value-yellow">{formatNumberPlain(calculations.totalASDamage)}%</div>
                     </div>
-                    <div className="result-box result-clickable" {...statProps('passiveDamage', formatNumber(calculations.passiveDamage) + '%')}>
+                    <div className="result-box result-clickable" {...statProps('passiveDamage', formatNumberPlain(calculations.passiveDamage) + '%')}>
                       <div className="result-label">
                         <span>パッシブダメージ</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.passiveDamage : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.passiveDamage : 0} />
+                        <IncreaseStack titan={showTitanInc ? calculations.increases.passiveDamage : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.passiveDamage : 0} />
                       </div>
-                      <div className="result-value value-orange">{formatNumber(calculations.passiveDamage)}%</div>
+                      <div className="result-value value-orange">{formatNumberPlain(calculations.passiveDamage)}%</div>
                     </div>
                   </div>
 
                   <div className="result-grid-2">
-                    <div className="result-box result-clickable" {...statProps('ironWallCorrection', formatNumber(calculations.ironWallCorrection))}>
+                    <div className="result-box result-clickable" {...statProps('ironWallCorrection', formatNumberPlain(calculations.ironWallCorrection))}>
                       <div className="result-label">
                         <span>鉄壁耐久補正</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.ironWallCorrection : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.ironWallCorrection : 0} />
+                        <IncreaseStack titan={showTitanInc ? calculations.increases.ironWallCorrection : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.ironWallCorrection : 0} />
                       </div>
-                      <div className="result-value value-blue">{formatNumber(calculations.ironWallCorrection)}</div>
+                      <div className="result-value value-blue">{formatNumberPlain(calculations.ironWallCorrection)}</div>
                     </div>
-                    <div className="result-box result-clickable" {...statProps('otherCompositeDurabilityCoef', formatNumber(calculations.otherCompositeDurabilityCoef))}>
+                    <div className="result-box result-clickable" {...statProps('otherCompositeDurabilityCoef', formatNumberPlain(calculations.otherCompositeDurabilityCoef))}>
                       <div className="result-label">
                         <span>他複合耐久係数</span>
-                        <IncreaseStack titan={titanEnabled ? calculations.increases.otherCompositeDurabilityCoef : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.otherCompositeDurabilityCoef : 0} />
+                        <IncreaseStack titan={showTitanInc ? calculations.increases.otherCompositeDurabilityCoef : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.otherCompositeDurabilityCoef : 0} />
                       </div>
-                      <div className="result-value value-blue" style={{ fontWeight: 'bold' }}>{formatNumber(calculations.otherCompositeDurabilityCoef)}</div>
+                      <div className="result-value value-blue" style={{ fontWeight: 'bold' }}>{formatNumberPlain(calculations.otherCompositeDurabilityCoef)}</div>
                     </div>
                   </div>
 
                   {/* 强调項目 */}
-                  <div className="result-box result-highlight result-clickable" {...statProps('heroPower', formatNumber(calculations.heroPower_display) + '倍')}>
+                  <div className="result-box result-highlight result-clickable" {...statProps('heroPower', formatNumberPlain(calculations.heroPower_display) + '倍')}>
                     <div className="result-label">
                       <span>英雄火力</span>
-                      <IncreaseStack titan={titanEnabled ? calculations.increases.heroPower : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroPower : 0} />
+                      <IncreaseStack titan={showTitanInc ? calculations.increases.heroPower : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.heroPower : 0} />
                     </div>
                     <div className="result-value result-value-lg value-red">
-                      {formatNumber(calculations.heroPower_display)}倍
+                      {formatNumberPlain(calculations.heroPower_display)}倍
                     </div>
                     {calculations.increases.compatibilityPower > 0 && (
                       <div className="result-label result-label-sub">
@@ -1734,13 +1763,13 @@
                       </div>
                     )}
                   </div>
-                  <div className="result-box result-highlight-green result-clickable" {...statProps('heroDurability', formatNumber(calculations.heroDurability_display) + '倍')}>
+                  <div className="result-box result-highlight-green result-clickable" {...statProps('heroDurability', formatNumberPlain(calculations.heroDurability_display) + '倍')}>
                     <div className="result-label">
                       <span>英雄耐久</span>
-                      <IncreaseStack titan={titanEnabled ? calculations.increases.heroDurability : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroDurability : 0} />
+                      <IncreaseStack titan={showTitanInc ? calculations.increases.heroDurability : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.heroDurability : 0} />
                     </div>
                     <div className="result-value result-value-lg value-green">
-                      {formatNumber(calculations.heroDurability_display)}倍
+                      {formatNumberPlain(calculations.heroDurability_display)}倍
                     </div>
                     {calculations.increases.compatibilityDurability > 0 && (
                       <div className="result-label result-label-sub">
@@ -1748,13 +1777,13 @@
                       </div>
                     )}
                   </div>
-                  <div className="result-box result-gold-30 result-clickable" {...statProps('heroStrength', formatNumber(calculations.heroStrength_display))}>
+                  <div className="result-box result-gold-30 result-clickable" {...statProps('heroStrength', formatNumberPlain(calculations.heroStrength_display))}>
                     <div className="result-label">
                       <span>英雄強さ値</span>
-                      <IncreaseStack titan={titanEnabled ? calculations.increases.heroStrength : 0} awakening={awakeningEnabled ? calculations.awakeningIncreases.heroStrength : 0} />
+                      <IncreaseStack titan={showTitanInc ? calculations.increases.heroStrength : 0} awakening={showAwakeningInc ? calculations.awakeningIncreases.heroStrength : 0} />
                     </div>
                     <div className="result-value result-value-lg value-yellow">
-                      {formatNumber(calculations.heroStrength_display)}
+                      {formatNumberPlain(calculations.heroStrength_display)}
                     </div>
                     {calculations.increases.compatibilityStrength > 0 && (
                       <div className="result-label result-label-sub">
@@ -1782,59 +1811,59 @@
                       {/* 追撃火力比率・直接ダメージ関連（2列表示） */}
                       <div className="trait-grid">
                         {/* 追撃１発の火力重み */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('rushRatio', formatNumber(calculations.rushRatio))}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('rushRatio', formatNumberPlain(calculations.rushRatio))}>
                           <div className="result-label result-label-xs">
                             追撃１発の火力重み
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.rushRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.rushRatio)}</div>
                         </div>
                         
                         {/* 直接攻撃１発の平均ダメージ */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('directDamagePerBullet', formatNumber(calculations.directDamagePerBullet) + '%')}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('directDamagePerBullet', formatNumberPlain(calculations.directDamagePerBullet) + '%')}>
                           <div className="result-label result-label-xs">
                             直接攻撃１発の平均ダメージ
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.directDamagePerBullet)}%</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.directDamagePerBullet)}%</div>
                         </div>
                         
                         {/* 直接攻撃１発の火力重み */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('directDamageRatio', formatNumber(calculations.directDamageRatio))}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('directDamageRatio', formatNumberPlain(calculations.directDamageRatio))}>
                           <div className="result-label result-label-xs">
                             直接攻撃１発の火力重み
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.directDamageRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.directDamageRatio)}</div>
                         </div>
                         
                         {/* 追撃依存率 */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('rushDependencyRatio', formatNumber(calculations.rushDependencyRatio))}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('rushDependencyRatio', formatNumberPlain(calculations.rushDependencyRatio))}>
                           <div className="result-label result-label-xs">
                             追撃依存率
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.rushDependencyRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.rushDependencyRatio)}</div>
                         </div>
 
                         {/* 磁気ダメージ依存率 */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('magneticDependencyRatio', formatNumber(calculations.magneticDependencyRatio))}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('magneticDependencyRatio', formatNumberPlain(calculations.magneticDependencyRatio))}>
                           <div className="result-label result-label-xs">
                             磁気ダメージ依存率
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.magneticDependencyRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.magneticDependencyRatio)}</div>
                         </div>
 
                         {/* 燃焼ダメージ依存率 */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('burningDependencyRatio', formatNumber(calculations.burningDependencyRatio))}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('burningDependencyRatio', formatNumberPlain(calculations.burningDependencyRatio))}>
                           <div className="result-label result-label-xs">
                             燃焼ダメージ依存率
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.burningDependencyRatio)}</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.burningDependencyRatio)}</div>
                         </div>
 
                         {/* 衰弱量（平準化） */}
-                        <div className="result-box result-box-trait result-clickable" {...statProps('weakenAmountLeveled', formatNumber(calculations.weakenAmountLeveled) + '%')}>
+                        <div className="result-box result-box-trait result-clickable" {...statProps('weakenAmountLeveled', formatNumberPlain(calculations.weakenAmountLeveled) + '%')}>
                           <div className="result-label result-label-xs">
                             衰弱量（平準化）
                           </div>
-                          <div className="result-value result-value-xs">{formatNumber(calculations.weakenAmountLeveled)}%</div>
+                          <div className="result-value result-value-xs">{formatNumberPlain(calculations.weakenAmountLeveled)}%</div>
                         </div>
                       </div>
                     </div>
@@ -1942,17 +1971,17 @@
                       <div className="result-value value-green">
                         {formatNumber(calculations.totalDurability)}
                       </div>
-                      {(titanEnabled && calculations.increases.totalDurability > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0) ? (
+                      {(showTitanInc && calculations.increases.totalDurability > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0) ? (
                         <div className="increase-row">
-                          {titanEnabled && calculations.increases.totalDurability > 0 && (
+                          {showTitanInc && calculations.increases.totalDurability > 0 && (
                             <span className="result-increase">+{calculations.increases.totalDurability}%</span>
                           )}
                           {compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0 && (
-                            <span className="compat-increase"> {titanEnabled && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
+                            <span className="compat-increase"> {showTitanInc && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
                           )}
                         </div>
                       ) : null}
-                      {awakeningEnabled && calculations.awakeningIncreases.totalDurability > 0 && (
+                      {showAwakeningInc && calculations.awakeningIncreases.totalDurability > 0 && (
                         <div className="increase-row-awakening">
                           <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalDurability}%</span>
                         </div>
@@ -1965,17 +1994,17 @@
                       <div className="result-value value-red">
                         {formatNumber(calculations.totalPower)}
                       </div>
-                      {(titanEnabled && calculations.increases.totalPower > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0) ? (
+                      {(showTitanInc && calculations.increases.totalPower > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0) ? (
                         <div className="increase-row">
-                          {titanEnabled && calculations.increases.totalPower > 0 && (
+                          {showTitanInc && calculations.increases.totalPower > 0 && (
                             <span className="result-increase">+{calculations.increases.totalPower}%</span>
                           )}
                           {compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0 && (
-                            <span className="compat-increase"> {titanEnabled && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
+                            <span className="compat-increase"> {showTitanInc && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
                           )}
                         </div>
                       ) : null}
-                      {awakeningEnabled && calculations.awakeningIncreases.totalPower > 0 && (
+                      {showAwakeningInc && calculations.awakeningIncreases.totalPower > 0 && (
                         <div className="increase-row-awakening">
                           <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalPower}%</span>
                         </div>
@@ -1991,17 +2020,17 @@
                     <div className="result-value result-value-xl value-yellow">
                       {formatNumber(calculations.totalStrength)}
                     </div>
-                    {(titanEnabled && calculations.increases.totalStrength > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0) ? (
+                    {(showTitanInc && calculations.increases.totalStrength > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0) ? (
                       <div className="increase-row">
-                        {titanEnabled && calculations.increases.totalStrength > 0 && (
+                        {showTitanInc && calculations.increases.totalStrength > 0 && (
                           <span className="result-increase">+{calculations.increases.totalStrength}%</span>
                         )}
                         {compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0 && (
-                          <span className="compat-increase"> {titanEnabled && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
+                          <span className="compat-increase"> {showTitanInc && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
                         )}
                       </div>
                     ) : null}
-                    {awakeningEnabled && calculations.awakeningIncreases.totalStrength > 0 && (
+                    {showAwakeningInc && calculations.awakeningIncreases.totalStrength > 0 && (
                       <div className="increase-row-awakening">
                         <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalStrength}%</span>
                       </div>
@@ -2031,17 +2060,27 @@
             </div>
             <div className={`card-content ${!expandedTabs.devLog ? 'hidden' : ''}`}>
               <div className="space-y-2">
-                {devLog.map((log, i) => (
+                {devLog.slice(devLogPage * DEVLOG_PAGE_SIZE, (devLogPage + 1) * DEVLOG_PAGE_SIZE).map((log, i) => (
                   <div key={i} className="devlog-row">
                     <span className="devlog-date">{log.date}</span>
                     {log.version && <span className="devlog-version">{log.version}</span>}
                     <span className={`devlog-badge devlog-cat-${devLogCategoryClass[log.category] || 'other'}`}>{log.category}</span>
-                    <span>{log.text}</span>
+                    <span className="devlog-text">{log.text}</span>
                   </div>
                 ))}
               </div>
+              {devLog.length > DEVLOG_PAGE_SIZE && (() => {
+                const totalPages = Math.ceil(devLog.length / DEVLOG_PAGE_SIZE);
+                return (
+                  <div className="devlog-pager">
+                    <button className="btn btn-secondary" disabled={devLogPage <= 0} onClick={() => setDevLogPage(devLogPage - 1)}>◀ 新しい</button>
+                    <span className="devlog-pager-info">{devLogPage + 1} / {totalPages}</span>
+                    <button className="btn btn-secondary" disabled={devLogPage >= totalPages - 1} onClick={() => setDevLogPage(devLogPage + 1)}>古い ▶</button>
+                  </div>
+                );
+              })()}
               <div className="devlog-note">
-                ※ このログは constants.js の <code>devLog</code> 配列を直接編集することで更新できます（先頭に追加＝最新表示）。
+                ※ このログは constants.js の <code>devLog</code> 配列を直接編集することで更新できます（先頭に追加＝最新表示）。バージョン表記は version 付きログの最大値から自動で決まります（軽微な調整は version を省略可）。
               </div>
             </div>
           </div>
