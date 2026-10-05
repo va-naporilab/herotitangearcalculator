@@ -307,6 +307,21 @@
       '開発': 'dev'
     };
 
+    // ===== サイトメニュー（ヘッダー右上のメニューボタンに表示） =====
+    // name: 表示名 / url: リンク先 / current: true で「現在のページ」表示（リンク無効）
+    // newTab: true で別タブで開く（外部サイト向け。省略時は同じタブ）
+    // url が空（''）の項目は「準備中」として灰色表示（リンクなし）。追加・並べ替えはこの配列を編集するだけでOK。
+    const siteMenu = {
+      title: '他のツール',
+      items: [
+        { name: '複合英雄強さ計算ツール', url: 'index.html', current: true },
+        { name: 'ナポリ探究所 - ツール集', url: 'https://sites.google.com/view/naporilab/tools' },
+        { name: '換算値と装備バフ比較', url: 'https://va-naporilab.github.io/equipmentbuff-evaluator/' },
+        { name: 'X（Twitter）- なぽ', url: 'https://x.com/naporitan1_3531' }
+        // 例: { name: '○○ツール', url: 'https://ユーザー名.github.io/リポジトリ名/', newTab: true },
+      ]
+    };
+
     // ===== ページ下部のクレジット・注意書き =====
     const footerInfo = {
       credits: [

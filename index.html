@@ -189,6 +189,49 @@
       );
     }
 
+    // ===== サイトメニュー（ヘッダー右上）。項目は constants.js の siteMenu で管理 =====
+    function SiteMenu() {
+      const [open, setOpen] = React.useState(false);
+      const ref = React.useRef(null);
+      React.useEffect(() => {
+        if (!open) return;
+        const onDown = (e) => { if (ref.current && !ref.current.contains(e.target)) setOpen(false); };
+        const onKey = (e) => { if (e.key === 'Escape') setOpen(false); };
+        document.addEventListener('mousedown', onDown);
+        document.addEventListener('touchstart', onDown);
+        window.addEventListener('keydown', onKey);
+        return () => {
+          document.removeEventListener('mousedown', onDown);
+          document.removeEventListener('touchstart', onDown);
+          window.removeEventListener('keydown', onKey);
+        };
+      }, [open]);
+      if (!siteMenu || !siteMenu.items || siteMenu.items.length === 0) return null;
+      return (
+        <div className="site-menu" ref={ref}>
+          <button className="site-menu-btn" aria-haspopup="true" aria-expanded={open} onClick={() => setOpen(!open)}>
+            <span className="site-menu-icon" aria-hidden="true">☰</span>
+            <span className="site-menu-btn-label">メニュー</span>
+          </button>
+          {open && (
+            <div className="site-menu-panel" role="menu">
+              <div className="site-menu-title">{siteMenu.title}</div>
+              {siteMenu.items.map((item, i) => {
+                if (item.current) return <div key={i} className="site-menu-item current" role="menuitem" aria-current="page">{item.name}<span className="site-menu-tag">表示中</span></div>;
+                if (!item.url) return <div key={i} className="site-menu-item disabled" role="menuitem">{item.name}<span className="site-menu-tag">準備中</span></div>;
+                return (
+                  <a key={i} className="site-menu-item" role="menuitem" href={item.url}
+                     {...(item.newTab ? { target: '_blank', rel: 'noopener noreferrer' } : {})}>
+                    {item.name}{item.newTab && <span className="site-menu-tag">↗</span>}
+                  </a>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      );
+    }
+
     // ===== 増分表示トグル（タイタン／覚醒トグル行の右側に表示） =====
     function IncreaseToggle({ value, onChange }) {
       return (
@@ -873,6 +916,7 @@
         <div className="container">
           {/* ヘッダー */}
           <div className="header">
+            <SiteMenu />
             <h1>
               <CalculatorIcon />
               複合英雄強さ計算ツール
@@ -2053,9 +2097,11 @@
               <div className="space-y-2">
                 {devLog.slice(devLogPage * DEVLOG_PAGE_SIZE, (devLogPage + 1) * DEVLOG_PAGE_SIZE).map((log, i) => (
                   <div key={i} className="devlog-row">
-                    <span className="devlog-date">{log.date}</span>
-                    {log.version && <span className="devlog-version">{log.version}</span>}
-                    <span className={`devlog-badge devlog-cat-${devLogCategoryClass[log.category] || 'other'}`}>{log.category}</span>
+                    <span className="devlog-meta">
+                      <span className="devlog-date">{log.date}</span>
+                      {log.version && <span className="devlog-version">{log.version}</span>}
+                      <span className={`devlog-badge devlog-cat-${devLogCategoryClass[log.category] || 'other'}`}>{log.category}</span>
+                    </span>
                     <span className="devlog-text">{log.text}</span>
                   </div>
                 ))}
