@@ -204,7 +204,7 @@ const heroData = {
         //   scatterBaseDamageBonus(ranks, exLv, ctx): 拡散ダメージ(scatterDamage)の baseDamage(%)への加算値
         //   scatterBulletsBonus(ranks, exLv, ctx)   : 拡散弾数への加算値（期待値、発）
         //   silenceReduction(ranks, exLv, ctx)      : 被沈黙数(敵から受ける沈黙数)の減少割合の期待値（0〜1）。エンジンは 被沈黙数×(1−値) で適用（複数英雄は掛け合わせ）
-        //   reactivation(ranks, exLv)               : スキル再発動の記述（再発動しない場合はnullを返す）
+        //   reactivation(ranks, exLv, ctx)          : スキル再発動の記述（再発動しない場合はnullを返す）
         //     → { condition, triggerRate, damageRatio, reactivateAsEffects } の形のみ、
         //       計算エンジン側での解釈（鉄壁ラウンド判定・発動率補正など）が必要なため、これだけは構造を持つ。
         awakening: {
@@ -244,6 +244,7 @@ const heroData = {
           },
 
           // スキル3：グローバル磁気効果強化（ランク1以上）＋ スキル再発動の解禁（ランク6以上）
+          // ★どちらも「フランカとルネを同時編成」している場合のみ有効
           // ・グローバル磁気効果強化は専7以上で1.5倍
           // ・再発動の確率・ダメージ割合はこの英雄内で定義（ルチルとは共有しない）
           // ★発動条件：フランカとルネを同時編成していること（ctx.teamHeroes に両方含まれる場合のみ）
@@ -256,7 +257,10 @@ const heroData = {
             if (exLv >= 7) v *= 1.5;
             return v;
           },
-          reactivation: (ranks) => {
+          reactivation: (ranks, exLv, ctx) => {
+            // ★ランク6以上の再発動も、フランカ と ルネ を同時編成している場合のみ有効
+            const team = (ctx && ctx.teamHeroes) || [];
+            if (!(team.includes('フランカ') && team.includes('ルネ'))) return null;
             // ランク6以上で解禁（テーブルに無いランクは再発動なし）
             const damageTable = { 6: 7.5, 7: 15, 8: 22.5, 9: 35, 10: 50 };
             const damageRatio = damageTable[ranks.skill3];
@@ -583,15 +587,18 @@ const heroData = {
 
           // PS追加ダメージのダメージ量加算（1発あたりのダメージ%に単純加算）
           //   スキル2：ランク1以上。専7以上で1.5倍
-          //   スキル3：ランク6以上（条件なし・専用倍率なし）
-          psAdditionalDamageBonus: (ranks, exLv) => {
+          //   スキル3：ランク6以上（専用倍率なし）。立華つむぎとミーチェを同時編成している場合のみ
+          psAdditionalDamageBonus: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
             let total = 0;
             if (ranks.skill2 > 0) {
               const s2Table = [0.6, 1.2, 1.8, 2.7, 3.6, 4.8, 6, 7.8, 9.6, 12]; // index: rank-1
               total += (s2Table[ranks.skill2 - 1] || 0) * (exLv >= 7 ? 1.5 : 1);
             }
-            const s3Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
-            total += s3Table[ranks.skill3] || 0;
+            if (team.includes('立華つむぎ') && team.includes('ミーチェ')) {
+              const s3Table = { 6: 1.5, 7: 3, 8: 4.5, 9: 7, 10: 10 };
+              total += s3Table[ranks.skill3] || 0;
+            }
             return total;
           },
           // スキル2：ランク6以上で、確率でPS追加ダメージの multiplier を+1する（期待値＝確率×1。専用倍率なし）
@@ -715,13 +722,17 @@ const heroData = {
             total += s1Table[ranks.skill1] || 0;
 
             // スキル3：アデルとマゼリアを同時編成している場合のみ。専7以上で1.5倍
-            if (ranks.skill3 > 0 && team.includes('アデル') && team.includes('マゼリア')) {
+            const s3Cond = team.includes('アデル') && team.includes('マゼリア');
+            if (ranks.skill3 > 0 && s3Cond) {
               const s3Table = [0.75, 1.5, 2.25, 3.38, 4.5, 6, 7.5, 9.75, 12, 15]; // index: rank-1
               total += (s3Table[ranks.skill3 - 1] || 0) * exMul;
             }
             // スキル3：ランク6以上で追加の確率加算（適用確率35%の期待値。専用倍率は掛けない）
-            const s3ExtraTable = { 6: 3, 7: 6, 8: 9, 9: 14, 10: 20 };
-            total += (s3ExtraTable[ranks.skill3] || 0) * 0.35;
+            //   ★アデルとマゼリアを同時編成している場合のみ有効
+            if (s3Cond) {
+              const s3ExtraTable = { 6: 3, 7: 6, 8: 9, 9: 14, 10: 20 };
+              total += (s3ExtraTable[ranks.skill3] || 0) * 0.35;
+            }
 
             // スキル4：アデル／ノーラ／ツバキのいずれかを同時編成している場合のみ。専7以上で1.5倍
             //   適用確率は攻速関係で変動：同攻速=(3/9)/2、高速勝ち=3/9、高速負け=0/9
@@ -994,11 +1005,14 @@ const heroData = {
             }
             return total;
           },
-          // 拡散弾数の加算（期待値）：スキル2・スキル3のランク6〜10で、確率で+1（条件なし・専用倍率なし）
+          // 拡散弾数の加算（期待値）：スキル2・スキル3のランク6〜10で、確率で+1（専用倍率なし）
           //   スキル2とスキル3は別々に判定されるので、期待値は両方を足す
-          scatterBulletsBonus: (ranks) => {
+          //   ★スキル3分は、マリナとアイリスを同時編成している場合のみ有効（スキル2は条件なし）
+          scatterBulletsBonus: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
             const rateTable = { 6: 9, 7: 18, 8: 27, 9: 42, 10: 60 }; // %
-            return ((rateTable[ranks.skill2] || 0) + (rateTable[ranks.skill3] || 0)) / 100;
+            const s3Active = team.includes('マリナ') && team.includes('アイリス');
+            return ((rateTable[ranks.skill2] || 0) + (s3Active ? (rateTable[ranks.skill3] || 0) : 0)) / 100;
           },
 
           // スキル4：被沈黙数の減少（ランク6以上で有効。ランクによる数値変動なし）
@@ -1227,10 +1241,14 @@ const heroData = {
           },
 
           // スキル3：条件付きグローバル燃焼強化（上記 globalBurningBoost）＋ スキル再発動
+          // ★どちらも「リヴィア（神秘）とノルシュを同時編成」している場合のみ有効
           // ・再発動はランク6以上で解禁（reactivation 内のテーブルに行があるランクのみ有効）。
           // ・再発動ダメージ割合はランク依存。確率は60%固定。
           // ・AS付随効果（AS付随燃焼など）はダメージ割合の影響を受けず、常に100%効果で再発動する。
-          reactivation: (ranks) => {
+          reactivation: (ranks, exLv, ctx) => {
+            // ★ランク6以上の再発動も、リヴィア（神秘） と ノルシュ を同時編成している場合のみ有効
+            const team = (ctx && ctx.teamHeroes) || [];
+            if (!(team.includes('リヴィア（神秘）') && team.includes('ノルシュ'))) return null;
             // ランク6以上で解禁（テーブルに無いランクは再発動なし）
             const damageTable = { 6: 7.5, 7: 15, 8: 22.5, 9: 35, 10: 50 };
             const damageRatio = damageTable[ranks.skill3];
@@ -1433,13 +1451,14 @@ const heroData = {
 
           // 確率で連撃回数+1（期待値としてエンジンが加算。専用倍率なし）
           //   スキル2：ランク6〜10、条件なし
-          //   スキル3：ランク6〜10、鉄壁が有効なラウンドのみ（ギャビー＋フローリアの編成条件は付けない）
-          comboCountBonus: (ranks) => {
+          //   スキル3：ランク6〜10、鉄壁が有効なラウンドのみ。★ギャビーとフローリアを同時編成している場合のみ有効
+          comboCountBonus: (ranks, exLv, ctx) => {
+            const team = (ctx && ctx.teamHeroes) || [];
             const list = [];
             const s2 = { 6: 12, 7: 15, 8: 19.5, 9: 24, 10: 30 };
             const s3 = { 6: 9, 7: 18, 8: 27, 9: 42, 10: 60 };
             if (s2[ranks.skill2]) list.push({ condition: 'always', triggerRate: s2[ranks.skill2], skill: 2 });
-            if (s3[ranks.skill3]) list.push({ condition: 'ironWallActive', triggerRate: s3[ranks.skill3], skill: 3 });
+            if (s3[ranks.skill3] && team.includes('ギャビー') && team.includes('フローリア')) list.push({ condition: 'ironWallActive', triggerRate: s3[ranks.skill3], skill: 3 });
             return list;
           },
 

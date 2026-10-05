@@ -168,6 +168,27 @@
       );
     }
 
+    // ===== 編成総合評価用の増分表示（タイタン／相性／覚醒）。値が0以下なら非表示。 =====
+    // 呼び出し側で「表示しない増分は 0 を渡す」ことで、トグルや相性設定のON/OFFを反映する。
+    function TotalIncrease({ titan, compat, awakening }) {
+      const t = parseFloat(titan) || 0, c = parseFloat(compat) || 0, a = parseFloat(awakening) || 0;
+      return (
+        <>
+          {(t > 0 || c > 0) && (
+            <div className="increase-row">
+              {t > 0 && <span className="result-increase">ﾀｲﾀﾝ +{titan}%</span>}
+              {c > 0 && <span className="compat-increase"> 相性増分 +{compat}%</span>}
+            </div>
+          )}
+          {a > 0 && (
+            <div className="increase-row-awakening">
+              <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{awakening}%</span>
+            </div>
+          )}
+        </>
+      );
+    }
+
     // ===== 増分表示トグル（タイタン／覚醒トグル行の右側に表示） =====
     function IncreaseToggle({ value, onChange }) {
       return (
@@ -279,7 +300,7 @@
     );
 
     function DamageLedgerView({ ledger, heroNames, titanEnabled, awakeningEnabled }) {
-      const [open, setOpen] = useState(true);
+      const [open, setOpen] = useState(false); // 初期状態は閉じる
       const [view, setView] = useState('hero');        // 'hero'(英雄別) | 'items'(項目一覧)
       const [fPhase, setFPhase] = useState('all');
       const [fKind, setFKind] = useState('all');
@@ -1527,7 +1548,7 @@
                   {titanEnabled && <IncreaseToggle value={titanIncreaseVisible} onChange={setTitanIncreaseVisible} />}
                 </div>
 
-                <div className="space-y-6">
+                <div className={`space-y-6 ${titanEnabled ? '' : 'section-disabled'}`}>
                   {heroes.map((hero, heroIdx) => (
                     <div key={heroIdx} className="titan-section">
                       <div 
@@ -1617,7 +1638,7 @@
                     {awakeningEnabled && <IncreaseToggle value={awakeningIncreaseVisible} onChange={setAwakeningIncreaseVisible} />}
                   </div>
 
-                  <div className="space-y-6" style={{ opacity: awakeningEnabled ? 1 : 0.5, pointerEvents: awakeningEnabled ? 'auto' : 'none' }}>
+                  <div className={`space-y-6 ${awakeningEnabled ? '' : 'section-disabled'}`}>
                     {heroes.map((hero, heroIdx) => {
                       const isAwakeningCapable = isAwakeningCapableHero(hero.name);
                       if (!isAwakeningCapable) {
@@ -1971,21 +1992,11 @@
                       <div className="result-value value-green">
                         {formatNumber(calculations.totalDurability)}
                       </div>
-                      {(showTitanInc && calculations.increases.totalDurability > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0) ? (
-                        <div className="increase-row">
-                          {showTitanInc && calculations.increases.totalDurability > 0 && (
-                            <span className="result-increase">+{calculations.increases.totalDurability}%</span>
-                          )}
-                          {compatibility === '相性有利' && calculations.increases.compatibilityDurationBonus > 0 && (
-                            <span className="compat-increase"> {showTitanInc && calculations.increases.totalDurability > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityDurationBonus}%</span>
-                          )}
-                        </div>
-                      ) : null}
-                      {showAwakeningInc && calculations.awakeningIncreases.totalDurability > 0 && (
-                        <div className="increase-row-awakening">
-                          <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalDurability}%</span>
-                        </div>
-                      )}
+                      <TotalIncrease
+                        titan={showTitanInc ? calculations.increases.totalDurability : 0}
+                        compat={compatibility === '相性有利' ? calculations.increases.compatibilityDurationBonus : 0}
+                        awakening={showAwakeningInc ? calculations.awakeningIncreases.totalDurability : 0}
+                      />
                     </div>
                     <div className="result-box result-clickable" {...statProps('totalPower', formatNumber(calculations.totalPower))}>
                       <div className="result-label">
@@ -1994,21 +2005,11 @@
                       <div className="result-value value-red">
                         {formatNumber(calculations.totalPower)}
                       </div>
-                      {(showTitanInc && calculations.increases.totalPower > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0) ? (
-                        <div className="increase-row">
-                          {showTitanInc && calculations.increases.totalPower > 0 && (
-                            <span className="result-increase">+{calculations.increases.totalPower}%</span>
-                          )}
-                          {compatibility === '相性有利' && calculations.increases.compatibilityPowerBonus > 0 && (
-                            <span className="compat-increase"> {showTitanInc && calculations.increases.totalPower > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityPowerBonus}%</span>
-                          )}
-                        </div>
-                      ) : null}
-                      {showAwakeningInc && calculations.awakeningIncreases.totalPower > 0 && (
-                        <div className="increase-row-awakening">
-                          <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalPower}%</span>
-                        </div>
-                      )}
+                      <TotalIncrease
+                        titan={showTitanInc ? calculations.increases.totalPower : 0}
+                        compat={compatibility === '相性有利' ? calculations.increases.compatibilityPowerBonus : 0}
+                        awakening={showAwakeningInc ? calculations.awakeningIncreases.totalPower : 0}
+                      />
                     </div>
                   </div>
 
@@ -2020,21 +2021,11 @@
                     <div className="result-value result-value-xl value-yellow">
                       {formatNumber(calculations.totalStrength)}
                     </div>
-                    {(showTitanInc && calculations.increases.totalStrength > 0) || (compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0) ? (
-                      <div className="increase-row">
-                        {showTitanInc && calculations.increases.totalStrength > 0 && (
-                          <span className="result-increase">+{calculations.increases.totalStrength}%</span>
-                        )}
-                        {compatibility === '相性有利' && calculations.increases.compatibilityStrengthBonus > 0 && (
-                          <span className="compat-increase"> {showTitanInc && calculations.increases.totalStrength > 0 ? '' : ''}相性増分 +{calculations.increases.compatibilityStrengthBonus}%</span>
-                        )}
-                      </div>
-                    ) : null}
-                    {showAwakeningInc && calculations.awakeningIncreases.totalStrength > 0 && (
-                      <div className="increase-row-awakening">
-                        <span className="result-increase result-increase-awakening" title="覚醒ON/OFFでの増分">覚醒 +{calculations.awakeningIncreases.totalStrength}%</span>
-                      </div>
-                    )}
+                    <TotalIncrease
+                      titan={showTitanInc ? calculations.increases.totalStrength : 0}
+                      compat={compatibility === '相性有利' ? calculations.increases.compatibilityStrengthBonus : 0}
+                      awakening={showAwakeningInc ? calculations.awakeningIncreases.totalStrength : 0}
+                    />
                   </div>
 
                   {/* 編成の火力耐久比 */}

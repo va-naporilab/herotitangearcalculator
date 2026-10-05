@@ -76,7 +76,7 @@
     /* グリッドレイアウト */
     .grid {
       display: grid;
-      grid-template-columns: 1fr;
+      grid-template-columns: minmax(0, 1fr); /* 1fr だと中身の最小幅までカラムが広がり、スマホで全体の幅が崩れる */
       gap: 1.5rem;
       max-width: 480px;
       margin: 0 auto;
@@ -90,6 +90,9 @@
         justify-content: center;
       }
     }
+
+    /* グリッド直下のカードは、中身が幅広でも親幅を超えない（広い表は内部で横スクロール） */
+    .grid > * { min-width: 0; }
 
     /* カード */
     .card {
@@ -651,17 +654,23 @@
     }
     .stat-popup {
       width: min(92vw, 420px);
+      max-height: 85vh;              /* dvh非対応ブラウザ用 */
+      max-height: 85dvh;             /* スマホのアドレスバー分を除いた実画面高さ基準 */
+      display: flex;
+      flex-direction: column;
       background: linear-gradient(135deg, #1e293b 0%, #0f172a 100%);
       border: 1px solid rgba(59, 130, 246, 0.5);
       border-radius: 0.75rem;
       box-shadow: 0 0 30px rgba(59, 130, 246, 0.4);
       padding: 1.25rem 1.25rem 1rem;
     }
-    .stat-popup-name { font-size: 1rem; font-weight: 700; color: #93c5fd; }
-    .stat-popup-value { font-size: 1.75rem; font-weight: 700; color: #fde047; margin: 0.15rem 0 0.75rem; }
-    .stat-popup-desc { font-size: 0.95rem; line-height: 1.6; color: #e2e8f0; white-space: pre-line; }
+    .stat-popup-name { font-size: 1rem; font-weight: 700; color: #93c5fd; flex-shrink: 0; overflow-wrap: anywhere; }
+    .stat-popup-value { font-size: 1.75rem; font-weight: 700; color: #fde047; margin: 0.15rem 0 0.75rem; flex-shrink: 0; overflow-wrap: anywhere; }
+    .stat-popup-desc { font-size: 0.95rem; line-height: 1.6; color: #e2e8f0; white-space: pre-line;
+      flex: 1 1 auto; min-height: 0; overflow-y: auto; overscroll-behavior: contain; /* 長文は説明欄だけスクロール */
+      overflow-wrap: anywhere; padding-right: 0.25rem; }
     .stat-popup-desc.pending { color: #64748b; font-style: italic; }
-    .stat-popup-close { display: block; margin: 1rem 0 0 auto; }
+    .stat-popup-close { display: block; margin: 1rem 0 0 auto; flex-shrink: 0; }
 
     /* ===== 編成メンバー表示・折りたたみサブパネル ===== */
     .party-strip {
@@ -772,3 +781,6 @@
     .devlog-pager .btn { padding: 0.3rem 0.9rem; font-size: 0.875rem; }
     .devlog-pager .btn:disabled { opacity: 0.4; cursor: default; }
     .devlog-pager-info { font-size: 0.875rem; color: #94a3b8; font-variant-numeric: tabular-nums; }
+
+    /* 効果トグルがOFFのとき（タイタン／覚醒）：内容を薄くして操作不可にする */
+    .section-disabled { opacity: 0.5; pointer-events: none; }
