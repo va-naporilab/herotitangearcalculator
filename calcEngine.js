@@ -464,7 +464,7 @@ function calculateAll({
       // reactivationだけは複数フィールドを持つ記述が必要（鉄壁ラウンド判定・確率補正はエンジン側の役割）
       const reactivationEntries = [];
       if (aw.reactivation) {
-        const effect = aw.reactivation(ranks, exLv);
+        const effect = aw.reactivation(ranks, exLv, teamCtx);
         if (effect) {
           const mask = reactivationConditionMask[effect.condition] || reactivationConditionMask.always;
           const conditionWeight = powerRoundWeights.reduce((sum, w, r) => sum + (mask[r] ? w : 0), 0);
