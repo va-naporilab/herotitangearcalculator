@@ -318,8 +318,9 @@
       title: '他のツール',
       items: [
         { name: '複合英雄強さ計算ツール', url: 'index.html', current: true },
-        { name: 'ナポリ探究所 - ツール集', url: 'https://sites.google.com/view/naporilab/tools' },
+        { name: '英雄育成 - 素材計算', url: 'https://va-naporilab.github.io/herolevelingresources/' },
         { name: '換算値と装備バフ比較', url: 'https://va-naporilab.github.io/equipmentbuff-evaluator/' },
+        { name: 'ナポリ探究所 - ツール集', url: 'https://sites.google.com/view/naporilab/tools' },
         { name: 'X（Twitter）- なぽ', url: 'https://x.com/naporitan1_3531' }
         // 例: { name: '○○ツール', url: 'https://ユーザー名.github.io/リポジトリ名/', newTab: true },
       ]
