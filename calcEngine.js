@@ -85,6 +85,21 @@ function calculateAll({
 }) {
   assertEngineDependencies();
 
+  // ===== ラウンド重み係数の正規化 =====
+  // 重み係数は「重み係数の和のうち、対象ラウンドの重み係数が占める割合」として使う。
+  //   例）R1だけが対象 → 重みR1 / 重み和、R1とR2が対象 → (重みR1+重みR2) / 重み和
+  // 重みを直接掛けると、重みの和が1でない設定のときに期待値の大きさそのものがずれてしまうため、
+  // 以降のラウンド重みを使う計算はすべて、この正規化済みの割合（powerShare / durabilityShare）を使う。
+  // 全ラウンドを対象にした加重平均（Σ 値×割合）は、割合の和が常に1なので真の加重平均になる。
+  // 重みの和が0以下のときは全ラウンド0（NaN回避）。
+  const normalizeRoundWeights = (weights) => {
+    const raw = Array.from(weights || [], w => Math.max(Number(w) || 0, 0));
+    const sum = raw.reduce((a, b) => a + b, 0);
+    return raw.map(w => (sum > 0 ? w / sum : 0));
+  };
+  const powerShare = normalizeRoundWeights(powerRoundWeights);            // 火力用：各ラウンドが占める割合
+  const durabilityShare = normalizeRoundWeights(durabilityRoundWeights);  // 耐久用：各ラウンドが占める割合
+
   // 兵種の不一致チェック（外す・未実装を除く有効な英雄のみ）
   const heroTypes = heroes
     .filter(h => h.name !== '外す' && heroData[h.name] && !heroData[h.name].name)
@@ -280,7 +295,7 @@ function calculateAll({
       if (data.psBurningBoostPerRound) {
         const boostPerRound = data.psBurningBoostPerRound(hero.exclusiveLv, teamCtx);
         const avgBoost = boostPerRound.reduce((sum, val, i) => 
-          sum + val * powerRoundWeights[i], 0);
+          sum + val * powerShare[i], 0);
         globalBurningBoost += avgBoost;
       }
     });
@@ -325,6 +340,9 @@ function calculateAll({
     const noraSpecialHeroes = [...new Set(
       heroes.flatMap(h => heroData[h.name]?.specialHeroes || [])
     )];
+    // 英雄ごとのASダメージ倍率（通常のAS本体と、スキル再発動したAS本体で共通に使う）
+    const getAsDamageMultiplier = (heroName) =>
+      noraSpecialHeroes.includes(heroName) ? noraSpecialMultiplier : noraASDamageMultiplier;
 
     // 被ダメージ減少シールドの種類数の計算
     
@@ -457,7 +475,7 @@ function calculateAll({
       let comboCountBonusExpected = 0;
       (aw.comboCountBonus ? (aw.comboCountBonus(ranks, exLv, teamCtx) || []) : []).forEach(e => {
         const mask = reactivationConditionMask[e.condition] || reactivationConditionMask.always;
-        const w = powerRoundWeights.reduce((sum, wt, r) => sum + (mask[r] ? wt : 0), 0);
+        const w = powerShare.reduce((sum, wt, r) => sum + (mask[r] ? wt : 0), 0);
         comboCountBonusExpected += w * ((e.triggerRate || 0) / 100);
       });
 
@@ -467,7 +485,7 @@ function calculateAll({
         const effect = aw.reactivation(ranks, exLv, teamCtx);
         if (effect) {
           const mask = reactivationConditionMask[effect.condition] || reactivationConditionMask.always;
-          const conditionWeight = powerRoundWeights.reduce((sum, w, r) => sum + (mask[r] ? w : 0), 0);
+          const conditionWeight = powerShare.reduce((sum, w, r) => sum + (mask[r] ? w : 0), 0);
           reactivationEntries.push({
             reactivateAsEffects: effect.reactivateAsEffects !== false,
             damageRatio: effect.damageRatio || 0,
@@ -530,7 +548,7 @@ function calculateAll({
     // 鉄壁率 = 有効ラウンドの重み×1 の合計
     let ironWallRate = 0;
     for (let i = 0; i < ironWallMaxRoundsForShield && i < 4; i++) {
-      ironWallRate += powerRoundWeights[i] * 1;
+      ironWallRate += powerShare[i] * 1;
     }
 
     // ── シールド種類数 = 合計重甲率 + 合計軽甲率 + 鉄壁率 ──
@@ -578,7 +596,7 @@ function calculateAll({
         shieldTypesDamageIncrease += averageShieldTypes * data.shieldTypesDamageBoost(exLv);
       }
       if (data.armorMultiplier) {
-        psArmorMultiplier = data.armorMultiplier(exLv);
+        psArmorMultiplier = Math.max(psArmorMultiplier, data.armorMultiplier(exLv));
       }
       if (data.shieldTypesScatterBoost) {
         totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
@@ -609,7 +627,7 @@ function calculateAll({
         
         // 耐久重み係数で平均化
         const avgReduction = reductionPerRound.reduce((sum, val, i) => 
-          sum + val * 100 * durabilityRoundWeights[i], 0);
+          sum + val * 100 * durabilityShare[i], 0);
         totalDamageReductionAddition += avgReduction;
       }
     });
@@ -708,12 +726,94 @@ function calculateAll({
     });
 
 
-    // 磁気数期待値の集計（アカネのAS拡散ダメ計算用）
+    // ===== 磁気数・脆弱数の期待値（ダメージ計算より先に、全英雄・全効果分を事前集計する） =====
+    //  ・磁気数 → アカネのAS追加直接ダメージ（asScatterDamage）で使う
+    //  ・脆弱数 → アリア＆ティナのASボーナス（asVulnerableBonus）で使う
+    // どちらも「発動率 × 個数」だけで決まりダメージ量には依存しないので、先に確定できる。
+    // （以前は各英雄・各効果の計算途中で足していたため、英雄の並び順やタイタン効果・覚醒効果の計算の前後で漏れが出ていた）
+    // 各式は、ダメージ側（下の各ブロック）が使う付与数・発動率と同じもの。式を変えるときは両方そろえること。
+    const resolveByEx = (v, ex) => (typeof v === 'function' ? v(ex) : v);
     let totalMagneticBulletsExpected = 0;
-    const magneticHeroCount = heroes.filter(h => heroData[h.name] && heroData[h.name].isMagneticHero).length - 1; // 自分を除く
-    
-    // 脆弱数期待値の集計（アリア＆ティナのASボーナス計算用）
     let totalVulnerableBulletsExpected = 0;
+    const magneticHeroCount = heroes.filter(h => heroData[h.name] && heroData[h.name].isMagneticHero).length - 1; // 自分を除く
+
+    // 脆弱ダメージは「直接ダメージ・直接弾数がすべて確定した後」に計算する（脆弱ダメージの確定ブロック参照）。
+    // 発動側は計算を pendingVulnerable に積むだけ。アリア＆ティナのAS補正は vulnerableMixPending に積む。
+    const pendingVulnerable = [];
+    const vulnerableMixPending = [];
+
+    heroes.forEach((hero, i) => {
+      const data = heroData[hero.name];
+      if (!data || data.name === '未実装' || data.name === '外す') return;
+      const exLv = hero.exclusiveLv;
+      const preBaseRate = data.asRate ? (typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate) : 0;
+      const preActualRate = preBaseRate * (9 - effectiveSilenceCount) / 9 / 100;   // AS発動率
+      const preTriggerRate = applyReactivationToRate(i, preActualRate);             // 再発動込みのトリガー確率（タイタンAS付随効果用）
+      const preAgg = awakeningEffects[i];
+
+      // --- 磁気数 ---
+      // ペトラのAS追加磁気
+      if (data.asRate && data.asDamage && data.asBullets && data.asExtraEffect && data.asExtraEffect(exLv, teamCtx)) {
+        const asBulletsCount = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
+        totalMagneticBulletsExpected += preActualRate * (asBulletsCount * 0.5 * (1.5 + runeMagneticBonus));
+      }
+      // アカネ・フェルムのPS磁気
+      if (data.psMagnetic) {
+        const psInfo = data.psMagnetic(exLv);
+        if (psInfo) totalMagneticBulletsExpected += psInfo.rate * psInfo.count;
+      }
+      // ミヤなどのPS磁気
+      if (data.psMagneticDamage && data.psMagneticBullets) {
+        totalMagneticBulletsExpected += (typeof data.psMagneticBullets === 'function' ?
+          data.psMagneticBullets(exLv) + runeMagneticBonus :
+          data.psMagneticBullets + runeMagneticBonus);
+      }
+      // 覚醒スキルのAS付随磁気（通常のAS発動分＋スキル再発動分。再発動はAS付随効果を再発動する場合のみ）
+      if (preAgg) {
+        preAgg.attachedMagnetics.forEach(mag => {
+          totalMagneticBulletsExpected += preActualRate * mag.count;
+          preAgg.reactivationEntries.forEach(e => {
+            if (e.reactivateAsEffects) totalMagneticBulletsExpected += preActualRate * e.factor * mag.count;
+          });
+        });
+      }
+      // タイタン：磁場（磁気数）・破凱（脆弱数）
+      if (useTitan) {
+        titanEquip[i].forEach((equip, slotIdx) => {
+          if (!['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) return;
+          if (equip.effect === '磁場') {
+            const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
+            if (effect && effect.levels && effect.counts) {
+              totalMagneticBulletsExpected += preTriggerRate * effect.counts[equip.level - 1];
+            }
+          }
+          if (equip.effect === '破凱') {
+            const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破凱');
+            if (effect && effect.levels && effect.counts && effect.lossCoefs) {
+              totalVulnerableBulletsExpected += preTriggerRate * effect.counts[equip.level - 1] * effect.lossCoefs[equip.level - 1] * 0.95;
+            }
+          }
+        });
+      }
+
+      // --- 脆弱数 ---
+      // ノーラ・アデル・ソフィ・ヒヨリのPS脆弱
+      if (data.psVulnerableValue) {
+        const vCount = resolveByEx(data.psVulnerableCount, exLv);
+        const vLoss = resolveByEx(data.psVulnerableLossCoef, exLv);
+        const vRate = resolveByEx(data.psVulnerableTriggerRate, exLv);
+        totalVulnerableBulletsExpected += vRate * vCount * vLoss * 0.95;
+      }
+      // マゼリアのAS脆弱
+      if (data.asVulnerable) {
+        totalVulnerableBulletsExpected += preActualRate * data.asVulnerable.count * data.asVulnerable.lossCoef * 0.95;
+      }
+      // アリア＆ティナのPS脆弱
+      if (data.psVulnerableFromDirect) {
+        const psInfo = data.psVulnerableFromDirect(exLv);
+        if (psInfo) totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
+      }
+    });
 
     heroes.forEach((hero, i) => {
       const data = heroData[hero.name];
@@ -758,25 +858,16 @@ function calculateAll({
         const damage = resolveAsDamage(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
         
         // ノーラのグローバルASダメージ倍率を適用（直接ダメージ部分のみ）
-        let asDamageMultiplier = 1.0;
-        if (noraSpecialHeroes.includes(hero.name)) {
-          asDamageMultiplier = noraSpecialMultiplier;
-        } else {
-          asDamageMultiplier = noraASDamageMultiplier;
-        }
+        const asDamageMultiplier = getAsDamageMultiplier(hero.name);
         
-        // アリア＆ティナの脆弱ボーナス計算
-        let finalDamage = damage;
-        if (data.asVulnerableBonus) {
-          const vulnerableProb = totalDirectBullets > 0 ? totalVulnerableBulletsExpected / totalDirectBullets : 0;
-          const normalDamage = damage;
-          const bonusDamage = data.asVulnerableBonus;
-          finalDamage = normalDamage * (1 - vulnerableProb) + bonusDamage * vulnerableProb;
-        }
-        
-        const asDamageAmount = actualRate * finalDamage * bullets * asDamageMultiplier;
+        // アリア＆ティナの脆弱ボーナス：確率（脆弱数期待値／直接弾数期待値）は最終値が必要なので、
+        // ここでは通常ダメージで計上し、差分は「脆弱ダメージの確定」ブロックで加算する。
+        const asDamageAmount = actualRate * damage * bullets * asDamageMultiplier;
         totalASDamage += asDamageAmount;
-        ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'hero', source: 'AS本体', value: asDamageAmount });
+        const asBodyEntry = ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'hero', source: 'AS本体', value: asDamageAmount });
+        if (data.asVulnerableBonus) {
+          vulnerableMixPending.push({ entry: asBodyEntry, shots: actualRate * bullets * asDamageMultiplier, damage: damage, bonus: data.asVulnerableBonus });
+        }
         
         // 直接ダメージとして追跡
         totalDirectDamage += asDamageAmount;
@@ -816,8 +907,6 @@ function calculateAll({
             totalMagneticDamage += extraDamage;
             // ペトラの追加磁気は磁気属性なので直接ダメージには含めない
             
-            // ペトラの磁気数を集計
-            totalMagneticBulletsExpected += actualRate * adjustedBullets;
           }
         }
         
@@ -863,7 +952,7 @@ function calculateAll({
             const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
               data.scatterDamage.conditionalBullets(exLv, types));
             const avgConditionalBullets = conditionalBulletsPerRound.reduce((sum, val, i) => 
-              sum + val * powerRoundWeights[i], 0);
+              sum + val * powerShare[i], 0);
             scatterBullets += avgConditionalBullets;
           }
           
@@ -890,8 +979,6 @@ function calculateAll({
           totalASDamage += psMagneticDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: psMagneticDamage });
           totalMagneticDamage += psMagneticDamage;
-          // 磁気数を集計
-          totalMagneticBulletsExpected += psInfo.rate * psInfo.count;
         }
       }
 
@@ -927,7 +1014,7 @@ function calculateAll({
         const tauntInfo = data.taunt(exLv, teamCtx);
         if (tauntInfo) {
           // R1とR2の重み係数で補正
-          const tauntWeight = powerRoundWeights[0] + powerRoundWeights[1];
+          const tauntWeight = powerShare[0] + powerShare[1];
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
           const tauntBurningDamage = (tauntInfo.rate * tauntInfo.burningValue * tauntInfo.burningCount * 
                                      burningBoost / 100 * tauntWeight) / abnormalReductionDivisor;
@@ -949,8 +1036,6 @@ function calculateAll({
         totalPSDamage += miyaMagneticDamage;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: miyaMagneticDamage });
         totalMagneticDamage += miyaMagneticDamage;
-        // ミヤの磁気数を集計
-        totalMagneticBulletsExpected += bullets;
       }
     });
 
@@ -1094,7 +1179,8 @@ function calculateAll({
 
       // AS重甲（ミーク・アイリス）：期待枚数 = 発動率 × 付与数
       if (data.asArmor) {
-        const actualRate = data.asRate ? data.asRate * (9 - effectiveSilenceCount) / 9 / 100 : 0;
+        const armorBaseRate = data.asRate ? (typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate) : 0;
+        const actualRate = armorBaseRate * (9 - effectiveSilenceCount) / 9 / 100;
         const expectedCount = actualRate * data.asArmor.count;
         totalArmorEffect += (data.asArmor.value / 100) * expectedCount * 0.6;
       }
@@ -1194,7 +1280,7 @@ function calculateAll({
     
     // 耐性個数の集計（R1耐久重みを適用）
     let totalResistanceCount = 0;
-    const r1DurabilityWeight = durabilityRoundWeights[0];
+    const r1DurabilityWeight = durabilityShare[0];
     heroes.forEach(hero => {
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
@@ -1278,8 +1364,6 @@ function calculateAll({
               totalASDamage += titanMagneticDamage;
               ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'titan', source: 'タイタン:磁場', value: titanMagneticDamage, slot: slotNames[slotIdx] });
               totalMagneticDamage += titanMagneticDamage;
-              // 磁気数期待値を集計
-              totalMagneticBulletsExpected += asRate * magneticCount;
             }
           }
           
@@ -1306,17 +1390,18 @@ function calculateAll({
               const lossCoef = effect.lossCoefs[equip.level - 1];
               const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
               
-              // 脆弱ダメージ = (脆弱を含まない直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化 / 攻撃強化補正
-              // これはASトリガーなので実際AS発動率を掛ける
-              const vulnerDamage = asRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
-                                  (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
-                                  (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-              totalASDamage += vulnerDamage;
-              ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'titan', source: 'タイタン:破凱', value: vulnerDamage, slot: slotNames[slotIdx] });
-              // AS属性の脆弱として別途追跡（弾数はカウントしない。AS直接ダメージ側には入れない＝二重計上防止）
-              totalASVulnerableDamage += vulnerDamage;
-              // 脆弱数期待値を集計
-              totalVulnerableBulletsExpected += asRate * vulnerCount * lossCoef * 0.95;
+              // 脆弱ダメージは直接ダメージが確定してから計算する（脆弱ダメージの確定ブロックで実行）
+              pendingVulnerable.push(() => {
+                // 脆弱ダメージ = (脆弱を含まない直接攻撃火力 / 直接攻撃弾数) × (脆弱値 / 100%) × (付与数 × ロス係数) × 脆弱強化 / 攻撃強化補正
+                // これはASトリガーなので実際AS発動率を掛ける
+                const vulnerDamage = asRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
+                                    (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
+                                    (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
+                totalASDamage += vulnerDamage;
+                ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'titan', source: 'タイタン:破凱', value: vulnerDamage, slot: slotNames[slotIdx] });
+                // AS属性の脆弱として別途追跡（弾数はカウントしない。AS直接ダメージ側には入れない＝二重計上防止）
+                totalASVulnerableDamage += vulnerDamage;
+              });
             }
           }
         });
@@ -1330,7 +1415,6 @@ function calculateAll({
     //   ・基準は「脆弱を含まない平均の直接1発」= totalDirectDamage / totalDirectBullets。
     //     脆弱は totalDirectDamage に加算しないので、編成順や他の脆弱に依存せず結果が一意に決まる。
     //   ・PS属性なので、ASの発動率・沈黙・スキル再発動(applyReactivationToRate)には一切干渉しない。
-    const resolveByEx = (v, ex) => (typeof v === 'function' ? v(ex) : v);
     // 脆弱ダメージの共通式（破凱・マゼリアと同じ）：
     //   発動率 × 平均の直接1発 × (脆弱値/100) × (付与数 × ロス係数 × 0.95) × 脆弱強化 / 攻撃強化補正
     const calcVulnerableDamage = (rate, value, count, lossCoef, heroIdx) => {
@@ -1339,7 +1423,8 @@ function calculateAll({
       return rate * avgDirectPerBullet * (value / 100) * (count * lossCoef * 0.95) *
              (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
     };
-    heroes.forEach((hero, i) => {
+    // ※この関数は「脆弱ダメージの確定」ブロックで呼ばれる（ここで定義するだけで、まだ計算はしない）
+    const applyHeroVulnerables = () => heroes.forEach((hero, i) => {
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       const exLv = hero.exclusiveLv;
@@ -1355,8 +1440,6 @@ function calculateAll({
         totalPSDamage += psVulnerDamage;
         totalPSVulnerableDamage += psVulnerDamage;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'vulnerable', origin: 'hero', source: 'PS脆弱', value: psVulnerDamage });
-        // 脆弱数期待値を集計
-        totalVulnerableBulletsExpected += triggerRate * vulnerCount * lossCoef * 0.95;
       }
 
       // マゼリアのAS脆弱付与
@@ -1372,7 +1455,6 @@ function calculateAll({
         ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'vulnerable', origin: 'hero', source: 'AS脆弱', value: vulnerDamage });
         // AS属性の脆弱として別途追跡（AS直接ダメージ側には入れない＝二重計上防止）
         totalASVulnerableDamage += vulnerDamage;
-        totalVulnerableBulletsExpected += actualRate * vulnerCount * lossCoef * 0.95;
       }
 
       // アリア＆ティナのPS脆弱（専5以上で1ラウンドに1度）
@@ -1386,8 +1468,6 @@ function calculateAll({
           totalPSDamage += ariaPSVulnerDamage;
           totalPSVulnerableDamage += ariaPSVulnerDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'vulnerable', origin: 'hero', source: 'PS脆弱', value: ariaPSVulnerDamage });
-          // 脆弱数期待値を集計
-          totalVulnerableBulletsExpected += psInfo.rate * psInfo.count;
         }
       }
     });
@@ -1534,12 +1614,14 @@ function calculateAll({
       }
     });
 
-    // 全軍突撃の計算（R1重み適用）
+    // 全軍突撃の計算（R1の重み割合を適用）
+    // 【方針】全軍突撃の倍率が掛かるのは「AS本体のダメージ」だけ。
+    //   ・タイタンのダメージ付与効果（磁場=磁気 / 灼熱=燃焼 / 破凱=脆弱）は倍率なしの100%のダメージ量
+    //   ・AS付随のダメージ（付随磁気・付随燃焼・付随直接・アカネ追加直接・拡散・マゼリアAS脆弱など）も倍率なし
+    //   ・スキル再発動も同じ考え方：再発動のダメージ割合(damageRatio)は再発動したAS本体にだけ掛け、
+    //     付随効果は100%（下の「覚醒スキル」ブロックと、タイタン付随効果のトリガー確率補正を参照）
     let rushBonus = 0;
-    let rushMagneticBonus = 0;
-    let rushBurningBonus = 0;
     const rushParts = [];
-    const rushAdd = (hero, idx, bucket, kind, source, raw, slot = null) => rushParts.push({ hero: hero.name, idx, bucket, kind, source, raw, slot });
     if (useTitan) {
       heroes.forEach((hero, i) => {
         const data = heroData[hero.name];
@@ -1558,146 +1640,23 @@ function calculateAll({
           }
         });
 
-        if (hasRush && data.asRate) {
+        // AS本体のダメージにだけ全軍突撃の倍率を適用
+        if (hasRush && data.asRate && data.asDamage && data.asBullets) {
           const exLv = hero.exclusiveLv;
           const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
           const actualRate = baseRate * (9 - effectiveSilenceCount) / 9 / 100;
-          
-          // AS直接ダメージの全突分
-          if (data.asDamage && data.asBullets) {
-            const bullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
-            const damage = resolveAsDamage(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
-            const rushPartAs = actualRate * damage * bullets * (rushValue / 100);
-            rushBonus += rushPartAs;
-            rushAdd(hero, i, 'plain', 'direct', '全軍突撃:AS本体', rushPartAs);
-          }
-
-          // ペトラのAS追加磁気の全突分（磁気属性だが全突対象）
-          if (data.asExtraEffect) {
-            const extra = data.asExtraEffect(exLv, teamCtx);
-            if (extra) {
-              const bulletCoefficient = 1.5 + runeMagneticBonus;
-              // AS弾数は英雄ごとに異なる判定
-              const asBulletsCount = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
-              const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
-              const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-              const rushPartExtra = actualRate * extra.damage * adjustedBullets * magneticBoost / 100 * (rushValue / 100);
-              rushMagneticBonus += rushPartExtra;
-              rushAdd(hero, i, 'abnormal', 'magnetic', '全軍突撃:AS追加磁気', rushPartExtra);
-            }
-          }
-
-          // アカネのAS追加直接ダメージの全突分（拡散ダメージではないため、レイチェル等の拡散補正は適用しない）
-          if (data.asScatterDamage) {
-            const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
-            const rushPartAkane = actualRate * scatterInfo.damage * scatterInfo.bullets * (rushValue / 100);
-            rushBonus += rushPartAkane;
-            rushAdd(hero, i, 'plain', 'direct', '全軍突撃:AS追加直接ダメージ', rushPartAkane);
-          }
-
-          // コレット・ピスカ・ルーシィの拡散ダメージの全突分
-          if (data.scatterDamage) {
-            const asBullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
-            
-            // 拡散基礎ダメージ（絶対値(%)：heroData の baseDamage をそのまま使う。ASダメージの大小には依存しない）
-            const scatterAwk = awakeningEffects[i];  // 覚醒スキルによる拡散baseDamage加算・弾数加算
-            const scatterDamageBase = data.scatterDamage.baseDamage + (scatterAwk ? scatterAwk.scatterBaseDamageBonus : 0);
-            
-            // 拡散ダメ加算補正
-            const scatterBoost = (100 + totalScatterDamageBoost) / 100;
-            const scatterDamagePerBullet = scatterDamageBase * scatterBoost;
-            
-            // 拡散弾数（基礎弾数 + 拡散弾数ボーナス）
-            let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus + (scatterAwk ? scatterAwk.scatterBulletsBonusAw : 0);
-            
-            // コレット・ピスカ：種類数に応じた追加弾数
-            if (data.scatterDamage && data.scatterDamage.conditionalBullets) {
-              // 各ラウンドで追加弾数を計算して火力重みで平均
-              const conditionalBulletsPerRound = shieldTypesPerRound.map(types => 
-                data.scatterDamage.conditionalBullets(exLv, types));
-              const avgConditionalBullets = conditionalBulletsPerRound.reduce((sum, val, idx) => 
-                sum + val * powerRoundWeights[idx], 0);
-              scatterBullets += avgConditionalBullets;
-            }
-            
-            // 拡散ダメージ = AS発動率 × 拡散ダメージ/弾 × AS弾数 × 拡散弾数
-            const totalScatterDamage = actualRate * scatterDamagePerBullet * asBullets * scatterBullets;
-            const rushPartScatter = totalScatterDamage * (rushValue / 100);
-            rushBonus += rushPartScatter;
-            rushAdd(hero, i, 'plain', 'direct', '全軍突撃:拡散ダメージ', rushPartScatter);
-          }
-
-          // 磁場（磁気付与）の全突分
-          titanEquip[i].forEach((equip, slotIdx) => {
-            if (equip.effect === '磁場' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
-              const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
-              if (effect && effect.levels && effect.counts) {
-                const magneticValue = effect.levels[equip.level - 1];
-                const magneticCount = effect.counts[equip.level - 1];
-                const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-                const rushPartMag = actualRate * magneticValue * magneticCount * magneticBoost / 100 * (rushValue / 100);
-                rushMagneticBonus += rushPartMag;
-                rushAdd(hero, i, 'abnormal', 'magnetic', '全軍突撃:磁場', rushPartMag, slotNames[slotIdx]);
-              }
-            }
-
-            // 灼熱（燃焼付与）の全突分
-            if (equip.effect === '灼熱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
-              const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '灼熱');
-              if (effect && effect.levels && effect.counts) {
-                const burningValue = effect.levels[equip.level - 1];
-                const burningCount = effect.counts[equip.level - 1];
-                const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
-                const rushPartBurn = actualRate * burningValue * burningCount * burningBoost / 100 * (rushValue / 100);
-                rushBurningBonus += rushPartBurn;
-                rushAdd(hero, i, 'abnormal', 'burning', '全軍突撃:灼熱', rushPartBurn, slotNames[slotIdx]);
-              }
-            }
-
-            // 破凱（脆弱付与）の全突分
-            if (equip.effect === '破凱' && ['rifle', 'vision', 'handy'].includes(slotNames[slotIdx])) {
-              const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破凱');
-              if (effect && effect.levels && effect.counts && effect.lossCoefs) {
-                const vulnerValue = effect.levels[equip.level - 1];
-                const vulnerCount = effect.counts[equip.level - 1];
-                const lossCoef = effect.lossCoefs[equip.level - 1];
-                const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
-                const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) * 
-                                    (vulnerValue / 100) * (vulnerCount * (lossCoef * 0.95)) * 
-                                    (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-                const rushPartVuln = vulnerDamage * (rushValue / 100);
-                rushBonus += rushPartVuln;
-                rushAdd(hero, i, 'plain', 'vulnerable', '全軍突撃:破凱', rushPartVuln, slotNames[slotIdx]);
-              }
-            }
-          });
-
-          // マゼリアのAS脆弱付与の全突分
-          if (data.asVulnerable) {
-            const { value: vulnerValue, count: vulnerCount, lossCoef } = data.asVulnerable;
-            const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
-            const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) *
-                                 (vulnerValue / 100) * (vulnerCount * lossCoef * 0.95) *
-                                 (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
-            const rushPartVuln = vulnerDamage * (rushValue / 100);
-            rushBonus += rushPartVuln;
-            rushAdd(hero, i, 'plain', 'vulnerable', '全軍突撃:AS脆弱', rushPartVuln);
-          }
+          const bullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
+          const damage = resolveAsDamage(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
+          const rushPartAs = actualRate * damage * bullets * (rushValue / 100);
+          rushBonus += rushPartAs;
+          rushParts.push({ hero: hero.name, idx: i, raw: rushPartAs });
         }
       });
-      
-      // R1重み（火力用）を適用
-      // 磁気・燃焼分は敵の異常ダメージ軽減を適用してから合算する
-      const rushContribution = rushBonus * powerRoundWeights[0];
-      const rushMagneticContribution = (rushMagneticBonus * powerRoundWeights[0]) / abnormalReductionDivisor;
-      const rushBurningContribution = (rushBurningBonus * powerRoundWeights[0]) / abnormalReductionDivisor;
-      totalASDamage += rushContribution + rushMagneticContribution + rushBurningContribution;
-      totalMagneticDamage += rushMagneticContribution;
-      totalBurningDamage += rushBurningContribution;
+
+      // R1の重み割合（火力用）を適用
+      totalASDamage += rushBonus * powerShare[0];
       rushParts.forEach(p => {
-        const w = powerRoundWeights[0];
-        const v = p.bucket === 'plain' ? p.raw * w : (p.raw * w) / abnormalReductionDivisor;
-        ledgerAdd({ hero: p.hero, idx: p.idx, phase: 'AS', kind: p.kind, origin: 'titan', source: p.source, value: v, slot: p.slot });
+        ledgerAdd({ hero: p.hero, idx: p.idx, phase: 'AS', kind: 'direct', origin: 'titan', source: '全軍突撃:AS本体', value: p.raw * powerShare[0] });
       });
     }
 
@@ -1779,9 +1738,19 @@ function calculateAll({
         if (reactivateExpected <= 0) return;
 
         // 再発動したASのダメージ（ランク依存のダメージ割合を適用。覚醒ASダメ加算込み）
-        const reactAsDamage = reactivateExpected * effectiveAsDamage * baseAsBullets * (damageRatio / 100);
+        // 通常のAS本体と同じく、ノーラ等のASダメージ倍率を掛ける（AS本体にだけ掛かる倍率。付随効果には掛けない）
+        const reactAsMult = getAsDamageMultiplier(hero.name);
+        const reactAsDamage = reactivateExpected * effectiveAsDamage * baseAsBullets * (damageRatio / 100) * reactAsMult;
         totalASDamage += reactAsDamage;
-        ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'awakening', source: '覚醒:再発動AS', value: reactAsDamage });
+        const reactAsEntry = ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'awakening', source: '覚醒:再発動AS', value: reactAsDamage });
+        // 再発動したASも直接ダメージ（弾数は割合に関係なく全弾。ダメージだけが割合分になる）として集計する
+        totalDirectDamage += reactAsDamage;
+        totalDirectBullets += reactivateExpected * baseAsBullets;
+        totalASDirectDamage += reactAsDamage;
+        totalASDirectBullets += reactivateExpected * baseAsBullets;
+        if (data.asVulnerableBonus) {
+          vulnerableMixPending.push({ entry: reactAsEntry, shots: reactivateExpected * baseAsBullets * (damageRatio / 100) * reactAsMult, damage: effectiveAsDamage, bonus: data.asVulnerableBonus });
+        }
 
         if (!reactivateAsEffects) return;
 
@@ -1799,6 +1768,10 @@ function calculateAll({
         agg.attachedDirects.forEach(d => {
           const reactDirect = reactivateExpected * d.value * d.count;
           totalASDamage += reactDirect;
+          totalDirectDamage += reactDirect;
+          totalDirectBullets += reactivateExpected * d.count;
+          totalASDirectDamage += reactDirect;
+          totalASDirectBullets += reactivateExpected * d.count;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'awakening', source: '覚醒:再発動付随直接' + (d.skill ? '(スキル' + d.skill + ')' : ''), value: reactDirect });
         });
 
@@ -1856,7 +1829,7 @@ function calculateAll({
           }
           // 火力重み係数で平均
           const avgHeartbeat = perRound.reduce((sum, val, i) => 
-            sum + val * powerRoundWeights[i], 0);
+            sum + val * powerShare[i], 0);
           heartbeatDamageIncrease += avgHeartbeat;
         }
       }
@@ -1879,7 +1852,7 @@ function calculateAll({
         const damageIncreasePerRound = data.psDamageIncreasePerRound(hero.exclusiveLv, teamCtx);
         if (damageIncreasePerRound) {
           riviaDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 
-            sum + val * powerRoundWeights[i], 0);
+            sum + val * powerShare[i], 0);
         }
       }
     });
@@ -1892,8 +1865,8 @@ function calculateAll({
       
       if (data.damageIncreasePerRound) {
         const [r1Boost, r234Boost] = data.damageIncreasePerRound(hero.exclusiveLv);
-        yuzuhaDamageIncrease = r1Boost * powerRoundWeights[0] + 
-                               r234Boost * (powerRoundWeights[1] + powerRoundWeights[2] + powerRoundWeights[3]);
+        yuzuhaDamageIncrease = r1Boost * powerShare[0] + 
+                               r234Boost * (powerShare[1] + powerShare[2] + powerShare[3]);
       }
     });
     
@@ -1917,7 +1890,7 @@ function calculateAll({
       if (data.damageIncreaseAddition) {
         const damageIncreasePerRound = data.damageIncreaseAddition(hero.exclusiveLv);
         meimeiDamageIncrease = damageIncreasePerRound.reduce((sum, val, i) => 
-          sum + val * powerRoundWeights[i], 0);
+          sum + val * powerShare[i], 0);
       }
     });
     
@@ -1941,6 +1914,27 @@ function calculateAll({
       });
       damageLedgerMeta.heartbeatCoeff = heartbeatCoeff;
     }
+
+    // ===== 脆弱ダメージの確定 =====
+    // 脆弱ダメージの基準は「脆弱を含まない平均の直接1発」= totalDirectDamage / totalDirectBullets。
+    // 通常攻撃強化・連撃・復讐・PS追加ダメージ・覚醒の直接ダメージ・鼓動がすべて反映された後でないと正しい基準にならないため、
+    // 発動側では計算せず、ここでまとめて確定する（脆弱は直接ダメージ・弾数に加算しないので、実行順で結果は変わらない）。
+    //  1) アリア＆ティナのASボーナス：最終の「脆弱数期待値／直接弾数期待値」の確率で、1発ダメージを bonus に置き換えた差分を加算
+    //  2) 破凱・マゼリア・PS脆弱：1) を反映した基準で計算
+    if (vulnerableMixPending.length > 0) {
+      const vulnerableProb = totalDirectBullets > 0
+        ? Math.min(Math.max(totalVulnerableBulletsExpected / totalDirectBullets, 0), 1)
+        : 0;
+      vulnerableMixPending.forEach(p => {
+        const delta = p.shots * (p.bonus - p.damage) * vulnerableProb;
+        p.entry.value += delta;
+        totalASDamage += delta;
+        totalDirectDamage += delta;
+        totalASDirectDamage += delta;
+      });
+    }
+    pendingVulnerable.forEach(fn => fn());
+    applyHeroVulnerables();
     
     if (totalDamageIncreaseBonus > 0) {
       damageIncreaseCoeff = (totalDamageIncreaseBonus + (buffs.damageIncrease + 100)) / (buffs.damageIncrease + 100);
@@ -1989,8 +1983,8 @@ function calculateAll({
                 
                 // 破壊不能重み = (鉄壁ラウンド数+1)のラウンド重み
                 // R1,R2,R3,R4以降 → index 0,1,2,3
-                const roundIndex = Math.min(ironRounds, durabilityRoundWeights.length - 1);
-                const destructibleWeight = durabilityRoundWeights[roundIndex];
+                const roundIndex = Math.min(ironRounds, durabilityShare.length - 1);
+                const destructibleWeight = durabilityShare[roundIndex];
                 
                 // 専用倍率込みの鉄壁値（％）
                 const adjustedIronValue = ironValue * exclusiveMultipliers[exLv];
