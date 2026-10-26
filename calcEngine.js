@@ -564,7 +564,10 @@ function calculateAll({
     }
 
     // 拡散ダメ加算の集計（レイチェル・マリナ・コレット・ルーシィから）
+    //   totalScatterDamageBoost      : マリナ等の拡散ダメ加算（固定値）。ピスカ覚醒スキルの加算と同じ枠で合算する
+    //   totalShieldTypesScatterBoost : 装甲(シールド)種類数バフ（種類数 × 係数）。別枠の乗算
     let totalScatterDamageBoost = 0;
+    let totalShieldTypesScatterBoost = 0;
     let scatterBulletBonus = 0; // 拡散弾数ボーナス（レイチェル・マリナ）
     
     // ダメ減加算の集計（レイチェル・マリナ・コレット・ルーシィから）
@@ -599,7 +602,7 @@ function calculateAll({
         psArmorMultiplier = Math.max(psArmorMultiplier, data.armorMultiplier(exLv));
       }
       if (data.shieldTypesScatterBoost) {
-        totalScatterDamageBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
+        totalShieldTypesScatterBoost += averageShieldTypes * data.shieldTypesScatterBoost(exLv);
       }
       if (data.shieldTypesDamageReductionBoost) {
         totalDamageReductionAddition += averageShieldTypes * data.shieldTypesDamageReductionBoost(exLv);
@@ -936,12 +939,14 @@ function calculateAll({
           const asBullets = resolveAsBullets(data, exLv, useAwakening ? (awakening[i] || {}) : null, teamCtx);
           
           // 拡散基礎ダメージ（絶対値(%)：heroData の baseDamage をそのまま使う。ASダメージの大小には依存しない）
-          const scatterAwk = awakeningEffects[i];  // 覚醒スキルによる拡散baseDamage加算・弾数加算
-          const scatterDamageBase = data.scatterDamage.baseDamage + (scatterAwk ? scatterAwk.scatterBaseDamageBonus : 0);
+          const scatterAwk = awakeningEffects[i];  // 覚醒スキルによる拡散ダメ増加・弾数加算
+          const scatterDamageBase = data.scatterDamage.baseDamage;
           
-          // 拡散ダメ加算補正
-          const scatterBoost = (100 + totalScatterDamageBoost) / 100;
-          const scatterDamagePerBullet = scatterDamageBase * scatterBoost;
+          // 拡散ダメージ/弾 = 拡散基礎ダメ × (100% + 装甲種類数バフ) × (100% + マリナ等の拡散ダメ増加 + ピスカ覚醒スキルの拡散ダメ増加)
+          const scatterTypesBoost = (100 + totalShieldTypesScatterBoost) / 100;
+          const scatterAwkBonus = scatterAwk ? scatterAwk.scatterBaseDamageBonus : 0;
+          const scatterAddBoost = (100 + totalScatterDamageBoost + scatterAwkBonus) / 100;
+          const scatterDamagePerBullet = scatterDamageBase * scatterTypesBoost * scatterAddBoost;
           
           // 拡散弾数（基礎弾数 + 拡散弾数ボーナス）
           let scatterBullets = data.scatterDamage.baseBullets + scatterBulletBonus + (scatterAwk ? scatterAwk.scatterBulletsBonusAw : 0);

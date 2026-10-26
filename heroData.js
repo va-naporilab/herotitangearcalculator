@@ -201,7 +201,7 @@ const heroData = {
         //   revengeExtraShots(ranks, exLv, ctx)     : 復讐のmultiplierを確率で加算する追加復讐の配列 [{value, prob, multiplierAdd, skill?}, ...]（value=追加分1発のダメージ%。個数 = 復讐count×multiplierAdd×prob）
         //   psAdditionalDamageBonus(ranks, exLv, ctx): PS追加ダメージ1発あたりのダメージ(%)への加算値
         //   psAdditionalMultiplierBonus(ranks, exLv, ctx): PS追加ダメージの multiplier への加算値（期待値。弾数 = count×(multiplier+加算)）
-        //   scatterBaseDamageBonus(ranks, exLv, ctx): 拡散ダメージ(scatterDamage)の baseDamage(%)への加算値
+        //   scatterBaseDamageBonus(ranks, exLv, ctx): 拡散ダメージ増加(%)。基礎ダメへの加算ではなく、マリナ等の拡散ダメ加算と同じ (100% + …) の枠に加算される
         //   scatterBulletsBonus(ranks, exLv, ctx)   : 拡散弾数への加算値（期待値、発）
         //   silenceReduction(ranks, exLv, ctx)      : 被沈黙数(敵から受ける沈黙数)の減少割合の期待値（0〜1）。エンジンは 被沈黙数×(1−値) で適用（複数英雄は掛け合わせ）
         //   reactivation(ranks, exLv, ctx)          : スキル再発動の記述（再発動しない場合はnullを返す）
@@ -983,7 +983,7 @@ const heroData = {
             return total;
           },
 
-          // 拡散ダメージの baseDamage（%）への加算。専用倍率ありのものは専7以上で1.5倍
+          // 拡散ダメージ増加（%）。マリナ等の拡散ダメ加算と同じ枠に加算される。専用倍率ありのものは専7以上で1.5倍
           //   スキル2：ランク1以上
           //   スキル3：マリナとアイリスを同時編成している場合のみ
           //   スキル4：ランク1以上
