@@ -736,19 +736,37 @@ function calculateAll({
       if (!useTitan) return false;
       return titanEquip[i].some((equip, slotIdx) => equip.effect === '全軍突撃' && slotNames[slotIdx] === 'rifle');
     });
+    // 環境変数（補正AS発動率・磁気ロスの両方で共通に使う）
+    const asRateEnv = {
+      runeMagneticBonus,
+      effectiveSilenceCount,
+      firstRoundShare: powerShare[0],
+      rushByHero,
+      // 付随効果も再発動するスキル再発動の追加発動係数の合計（applyReactivationToRate と同じ定義）
+      reactivationFactor: awakeningEffects.map(agg => agg
+        ? agg.reactivationEntries.filter(e => e.reactivateAsEffects).reduce((sum, e) => sum + e.factor, 0)
+        : 0)
+    };
+
+    // ===== 補正AS発動率（英雄ごと。AS付随効果の発動率として統一的に使う） =====
+    //   補正AS発動率 = AS発動率 × (9 − 被沈黙数)/9 × (1 + 再発動の条件ターン重み×再発動率 + 全軍突撃のR1重み)
+    //   【使う】覚醒の付随磁気・付随直接 / タイタン磁場・灼熱・破凱 / ペトラ・フランカのAS追加磁気 /
+    //           アカネのAS追加直接 / マゼリアのAS脆弱 / 各磁気・脆弱の弾数期待値
+    //   【ミスティの付随燃焼だけ使う】heroData の asBurning が useCorrectedAsRate: true を返す場合
+    //   【使わない】AS本体（割合 damageRatio・全突の割合が掛かるため別計算）/ 拡散（AS本体に近い扱い）/
+    //           ルチル・ノルシュの付随燃焼（ゲーム内の上限の関係で全突・再発動なし。AS発動率×沈黙のみ）/ AS重甲 /
+    //           タイタン衝撃・AS衰弱（既存の専用ロジックのまま。衝撃は getDebuffRate の実測テーブルに全突が
+    //           織り込み済み、AS衰弱は英雄ごとの実測値のため、補正発動率に置き換えると出力が変わる）
+    const correctedAsRates = heroes.map((hero, i) => {
+      const data = heroData[hero.name];
+      if (!data || !data.asRate) return 0;
+      return calcCorrectedAsRate(data, hero.exclusiveLv, asRateEnv, i);
+    });
+
     const magneticLosses = resolveMagneticLosses(
       heroes,
       heroes.map((hero, i) => (useAwakening ? (awakening[i] || {}) : null)),
-      {
-        runeMagneticBonus,
-        effectiveSilenceCount,
-        firstRoundShare: powerShare[0],
-        rushByHero,
-        // 付随効果も再発動するスキル再発動の追加発動係数の合計（applyReactivationToRate と同じ定義）
-        reactivationFactor: awakeningEffects.map(agg => agg
-          ? agg.reactivationEntries.filter(e => e.reactivateAsEffects).reduce((sum, e) => sum + e.factor, 0)
-          : 0)
-      }
+      asRateEnv
     );
     const magneticLossCoefs = magneticLosses.map(l => l.coef);
 
@@ -773,16 +791,14 @@ function calculateAll({
       const data = heroData[hero.name];
       if (!data || data.name === '未実装' || data.name === '外す') return;
       const exLv = hero.exclusiveLv;
-      const preBaseRate = data.asRate ? (typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate) : 0;
-      const preActualRate = preBaseRate * (9 - effectiveSilenceCount) / 9 / 100;   // AS発動率
-      const preTriggerRate = applyReactivationToRate(i, preActualRate);             // 再発動込みのトリガー確率（タイタンAS付随効果用）
+      const preCorrectedRate = correctedAsRates[i];   // 補正AS発動率（沈黙・再発動・全突込み）
       const preAgg = awakeningEffects[i];
 
       // --- 磁気数 ---
       // ペトラのAS追加磁気
       if (data.asRate && data.asDamage && data.asBullets && data.asExtraEffect && data.asExtraEffect(exLv, teamCtx)) {
         const asBulletsCount = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
-        totalMagneticBulletsExpected += preActualRate * (asBulletsCount * 0.5 * (1.5 + runeMagneticBonus));
+        totalMagneticBulletsExpected += preCorrectedRate * (asBulletsCount * 0.5 * (1.5 + runeMagneticBonus));
       }
       // アカネ・フェルムのPS磁気
       if (data.psMagnetic) {
@@ -795,13 +811,10 @@ function calculateAll({
           data.psMagneticBullets(exLv) + runeMagneticBonus :
           data.psMagneticBullets + runeMagneticBonus);
       }
-      // 覚醒スキルのAS付随磁気（通常のAS発動分＋スキル再発動分。再発動はAS付随効果を再発動する場合のみ）
+      // 覚醒スキルのAS付随磁気（補正AS発動率：通常発動＋スキル再発動＋全軍突撃）
       if (preAgg) {
         preAgg.attachedMagnetics.forEach(mag => {
-          totalMagneticBulletsExpected += preActualRate * mag.count;
-          preAgg.reactivationEntries.forEach(e => {
-            if (e.reactivateAsEffects) totalMagneticBulletsExpected += preActualRate * e.factor * mag.count;
-          });
+          totalMagneticBulletsExpected += preCorrectedRate * mag.count;
         });
       }
       // タイタン：磁場（磁気数）・破凱（脆弱数）
@@ -811,13 +824,13 @@ function calculateAll({
           if (equip.effect === '磁場') {
             const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '磁場');
             if (effect && effect.levels && effect.counts) {
-              totalMagneticBulletsExpected += preTriggerRate * effect.counts[equip.level - 1];
+              totalMagneticBulletsExpected += preCorrectedRate * effect.counts[equip.level - 1];
             }
           }
           if (equip.effect === '破凱') {
             const effect = titanEffects[slotNames[slotIdx]].effects.find(e => e.name === '破凱');
             if (effect && effect.levels && effect.counts && effect.lossCoefs) {
-              totalVulnerableBulletsExpected += preTriggerRate * effect.counts[equip.level - 1] * effect.lossCoefs[equip.level - 1] * 0.95;
+              totalVulnerableBulletsExpected += preCorrectedRate * effect.counts[equip.level - 1] * effect.lossCoefs[equip.level - 1] * 0.95;
             }
           }
         });
@@ -833,7 +846,7 @@ function calculateAll({
       }
       // マゼリアのAS脆弱
       if (data.asVulnerable) {
-        totalVulnerableBulletsExpected += preActualRate * data.asVulnerable.count * data.asVulnerable.lossCoef * 0.95;
+        totalVulnerableBulletsExpected += preCorrectedRate * data.asVulnerable.count * data.asVulnerable.lossCoef * 0.95;
       }
       // アリア＆ティナのPS脆弱
       if (data.psVulnerableFromDirect) {
@@ -907,13 +920,16 @@ function calculateAll({
         totalASBullets += actualRate * bullets;
 
         // AS付随燃焼（ルチル・ノルシュ・ミスティ）
+        // ・ルチル・ノルシュ：ゲーム内の上限の関係で、全軍突撃・スキル再発動は反映しない（AS発動率×沈黙のみ = actualRate）
+        // ・ミスティ：特殊で全軍突撃を反映する。heroData 側が useCorrectedAsRate: true を返す英雄は補正AS発動率を使う
         if (data.asBurning) {
           const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
           // 関数形式の場合は teamCtx を渡す（ユズハ/ノルシュ同時編成の判定は heroData 側）
           const burningInfo = typeof data.asBurning === 'function' 
             ? data.asBurning(teamCtx) 
             : data.asBurning;
-          const asBurningDamage = (actualRate * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
+          const burningRate = burningInfo.useCorrectedAsRate ? correctedAsRates[i] : actualRate;
+          const asBurningDamage = (burningRate * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
           totalASDamage += asBurningDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'burning', origin: 'hero', source: 'AS付随燃焼', value: asBurningDamage });
           totalBurningDamage += asBurningDamage;
@@ -928,7 +944,7 @@ function calculateAll({
             const asBulletsCount = typeof data.asBullets === 'function' ? data.asBullets(exLv) : data.asBullets;
             const adjustedBullets = asBulletsCount * 0.5 * bulletCoefficient;
             const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-            const extraDamage = (actualRate * extra.damage * adjustedBullets * magneticBoost / 100) / abnormalReductionDivisor;
+            const extraDamage = (correctedAsRates[i] * extra.damage * adjustedBullets * magneticBoost / 100) / abnormalReductionDivisor;
             totalASDamage += extraDamage;
             ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'hero', source: 'AS追加磁気', value: extraDamage });
             totalMagneticDamage += extraDamage;
@@ -940,18 +956,17 @@ function calculateAll({
         // アカネの追加AS直接ダメージ（拡散ダメージではない）
         // 絶対値ダメージ（ASダメージ基準ではない）なので、ノーラ等のASダメージ倍率は適用しない
         if (data.asScatterDamage) {
-          const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
-          const actualRate = baseRate * (9 - effectiveSilenceCount) / 9 / 100;
+          const correctedRate = correctedAsRates[i];   // 補正AS発動率（沈黙・再発動・全突込み）
           const scatterInfo = data.asScatterDamage(exLv, totalMagneticBulletsExpected, magneticHeroCount);
-          const scatterDamage = actualRate * scatterInfo.damage * scatterInfo.bullets;
+          const scatterDamage = correctedRate * scatterInfo.damage * scatterInfo.bullets;
           totalASDamage += scatterDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'hero', source: 'AS追加直接ダメージ', value: scatterDamage });
           totalDirectDamage += scatterDamage;
-          totalDirectBullets += actualRate * scatterInfo.bullets;
+          totalDirectBullets += correctedRate * scatterInfo.bullets;
           
           // AS直接ダメージとして追跡
           totalASDirectDamage += scatterDamage;
-          totalASDirectBullets += actualRate * scatterInfo.bullets;
+          totalASDirectBullets += correctedRate * scatterInfo.bullets;
         }
         
         // コレット・ピスカ・ルーシィの拡散ダメージ
@@ -1370,16 +1385,10 @@ function calculateAll({
         const data = heroData[hero.name];
         if (!data || data.name === '未実装' || data.name === '外す') return;
 
-        // 実際のAS発動率
-        let asRate = 0;
-        if (data.asRate) {
-          const rawAsRate = typeof data.asRate === 'function' ? data.asRate(hero.exclusiveLv) : data.asRate;
-          asRate = rawAsRate * (9 - effectiveSilenceCount) / 9 / 100;
-        }
         // タイタンのAS付随効果（磁場・灼熱・破凱）は100%効果のまま、
-        // 覚醒スキルの再発動があればトリガー確率＝AS発動率×(1+条件重み和×再発動確率)で計算する。
-        // これにより増分 = AS発動率 × 条件重み和 × 再発動確率 × 100%効果 となる。
-        asRate = applyReactivationToRate(i, asRate);
+        // 補正AS発動率（沈黙・スキル再発動・全軍突撃込み）で発動回数を数える。
+        // 増分 = AS発動率 × (条件ターン重み×再発動率 + 全突R1重み) × 100%効果
+        const asRate = correctedAsRates[i];
 
         titanEquip[i].forEach((equip, slotIdx) => {
           // 磁場（磁気付与）
@@ -1473,11 +1482,10 @@ function calculateAll({
 
       // マゼリアのAS脆弱付与
       if (data.asVulnerable) {
-        const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : data.asRate;
-        const actualRate = baseRate * (9 - effectiveSilenceCount) / 9 / 100;
+        const correctedRate = correctedAsRates[i];   // 補正AS発動率（沈黙・再発動・全突込み）
         const { value: vulnerValue, count: vulnerCount, lossCoef } = data.asVulnerable;
         const vulnerBoost = 100 + localVulnerBoosts[i] + globalVulnerableBoost;
-        const vulnerDamage = actualRate * (totalDirectDamage / (totalDirectBullets || 1)) *
+        const vulnerDamage = correctedRate * (totalDirectDamage / (totalDirectBullets || 1)) *
                              (vulnerValue / 100) * (vulnerCount * lossCoef * 0.95) *
                              (vulnerBoost / 100) / ((100 + totalAttackBuff) / 100);
         totalASDamage += vulnerDamage;
@@ -1644,11 +1652,15 @@ function calculateAll({
     });
 
     // 全軍突撃の計算（R1の重み割合を適用）
-    // 【方針】全軍突撃の倍率が掛かるのは「AS本体のダメージ」だけ。
-    //   ・タイタンのダメージ付与効果（磁場=磁気 / 灼熱=燃焼 / 破凱=脆弱）は倍率なしの100%のダメージ量
-    //   ・AS付随のダメージ（付随磁気・付随燃焼・付随直接・アカネ追加直接・拡散・マゼリアAS脆弱など）も倍率なし
+    // 【方針】全軍突撃は「R1に確定で起きる再発動」として扱う。
+    //   ・AS本体：全突の割合(rushValue)を掛けた分だけをここで計上する
+    //   ・AS付随効果（タイタン磁場・灼熱・破凱 / 覚醒の付随磁気・付随直接 / ペトラ・フランカのAS追加磁気 /
+    //     アカネのAS追加直接 / マゼリアのAS脆弱）は割合なしの100%効果で、補正AS発動率(correctedAsRates)に
+    //     R1の重みが含まれるため、ここでは計上しない（二重計上防止）
+    //   ・ミスティのAS付随燃焼は特殊で、補正AS発動率により全突を反映する
+    //   ・拡散・ルチル/ノルシュのAS付随燃焼・AS重甲・衰弱付与は全突を反映しない（既存の扱いのまま）
     //   ・スキル再発動も同じ考え方：再発動のダメージ割合(damageRatio)は再発動したAS本体にだけ掛け、
-    //     付随効果は100%（下の「覚醒スキル」ブロックと、タイタン付随効果のトリガー確率補正を参照）
+    //     付随効果は補正AS発動率で一括計上する（下の「覚醒スキル」ブロックを参照）
     let rushBonus = 0;
     const rushParts = [];
     if (useTitan) {
@@ -1700,9 +1712,11 @@ function calculateAll({
     //  ・reactivation：
     //      追加のAS発動期待値 = AS発動率 × 条件ラウンド(鉄壁継続)の火力重み係数の和 × 再発動確率
     //      再発動ASダメージ = 追加発動期待値 × ASダメージ（resolveAsDamageで覚醒加算込み） × 弾数 × ダメージ割合(ランク依存)
-    //      AS付随効果（英雄固有の付随燃焼／覚醒スキルの付随磁気）は割合の影響を受けず、
-    //      100%効果 × 追加発動期待値
-    //  ・タイタンのAS付随効果と衰弱付与は、上流でトリガー確率(AS発動率×(1+factor))を使って加算済み
+    //      ここで計上するのは再発動した「AS本体」だけ。
+    //  ・AS付随効果（覚醒スキルの付随磁気・付随直接など）は割合の影響を受けず100%効果で、
+    //    再発動・全軍突撃の分も含めて「補正AS発動率(correctedAsRates)」で一括計上する。
+    //    ただしAS付随燃焼は、ゲーム内の上限の関係で再発動・全突を反映しない（AS発動率×沈黙のみ）
+    //  ・タイタンのAS付随効果は、上流で補正AS発動率を使って加算済み。衰弱付与は従来のトリガー確率のまま
     //  ・全軍突撃とは独立。それぞれの増分は基本ASにだけ依存し、単純加算する
     //  ・各英雄は自分の awakening[i] から作られた効果だけを使うので、ランクは混線しない
     heroes.forEach((hero, i) => {
@@ -1714,28 +1728,29 @@ function calculateAll({
 
       const baseAsRate = typeof data.asRate === 'function' ? data.asRate(exLv) : (data.asRate || 0);
       const actualRate = baseAsRate * (9 - effectiveSilenceCount) / 9 / 100;
+      const correctedRate = correctedAsRates[i];   // 補正AS発動率（付随効果用。沈黙・再発動・全突込み）
       // 覚醒スキルのASダメージ加算込みの値（resolveAsDamageが内部で加算する）
       const effectiveAsDamage = resolveAsDamage(data, exLv, ranks, teamCtx);
       const baseAsBullets = resolveAsBullets(data, exLv, ranks, teamCtx);
       const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
 
-      // --- asAttachedMagnetic：AS発動のたびに100%効果で発生する磁気ダメージ ---
+      // --- asAttachedMagnetic：AS発動のたびに100%効果で発生する磁気ダメージ（補正AS発動率） ---
       agg.attachedMagnetics.forEach(mag => {
-        const dmg = (actualRate * mag.value * mag.count * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
+        const dmg = (correctedRate * mag.value * mag.count * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
         totalASDamage += dmg;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'awakening', source: '覚醒:AS付随磁気' + (mag.skill ? '(スキル' + mag.skill + ')' : ''), value: dmg });
         totalMagneticDamage += dmg;
       });
 
-      // --- attachedDirects：AS発動のたびに100%効果で発生する直接ダメージ（絶対値。AS倍率・磁気/燃焼強化は掛けない） ---
+      // --- attachedDirects：AS発動のたびに100%効果で発生する直接ダメージ（絶対値。AS倍率・磁気/燃焼強化は掛けない。補正AS発動率） ---
       agg.attachedDirects.forEach(d => {
-        const dmg = actualRate * d.value * d.count;
+        const dmg = correctedRate * d.value * d.count;
         totalASDamage += dmg;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'awakening', source: '覚醒:AS付随直接' + (d.skill ? '(スキル' + d.skill + ')' : ''), value: dmg });
         totalDirectDamage += dmg;
-        totalDirectBullets += actualRate * d.count;
+        totalDirectBullets += correctedRate * d.count;
         totalASDirectDamage += dmg;
-        totalASDirectBullets += actualRate * d.count;
+        totalASDirectBullets += correctedRate * d.count;
       });
 
       // --- passiveDirects：パッシブ(PS)直接ダメージ（期待値 = 発動率 × 1発ダメージ × 弾数。AS発動率・沈黙とは無関係） ---
@@ -1762,7 +1777,7 @@ function calculateAll({
       }
 
       // --- reactivation：スキル再発動 ---
-      agg.reactivationEntries.forEach(({ reactivateAsEffects, damageRatio, factor }) => {
+      agg.reactivationEntries.forEach(({ damageRatio, factor }) => {
         const reactivateExpected = actualRate * factor;
         if (reactivateExpected <= 0) return;
 
@@ -1780,37 +1795,6 @@ function calculateAll({
         if (data.asVulnerableBonus) {
           vulnerableMixPending.push({ entry: reactAsEntry, shots: reactivateExpected * baseAsBullets * (damageRatio / 100) * reactAsMult, damage: effectiveAsDamage, bonus: data.asVulnerableBonus });
         }
-
-        if (!reactivateAsEffects) return;
-
-        // 英雄固有のAS付随燃焼（ルチルなど）：100%効果
-        if (data.asBurning) {
-          const burningBoost = 100 + globalBurningBoost + localBurningBoosts[i];
-          const burningInfo = typeof data.asBurning === 'function' ? data.asBurning(teamCtx) : data.asBurning;
-          const reactBurningDamage = (reactivateExpected * burningInfo.value * burningInfo.count * burningBoost / 100) / abnormalReductionDivisor;
-          totalASDamage += reactBurningDamage;
-          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'burning', origin: 'awakening', source: '覚醒:再発動燃焼', value: reactBurningDamage });
-          totalBurningDamage += reactBurningDamage;
-        }
-
-        // 覚醒スキルに付随する直接ダメージ（ルチルのスキル4など）：100%効果
-        agg.attachedDirects.forEach(d => {
-          const reactDirect = reactivateExpected * d.value * d.count;
-          totalASDamage += reactDirect;
-          totalDirectDamage += reactDirect;
-          totalDirectBullets += reactivateExpected * d.count;
-          totalASDirectDamage += reactDirect;
-          totalASDirectBullets += reactivateExpected * d.count;
-          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'direct', origin: 'awakening', source: '覚醒:再発動付随直接' + (d.skill ? '(スキル' + d.skill + ')' : ''), value: reactDirect });
-        });
-
-        // 覚醒スキルに付随する磁気（ミヤのスキル2・スキル4など）：100%効果
-        agg.attachedMagnetics.forEach(mag => {
-          const reactMagDamage = (reactivateExpected * mag.value * mag.count * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
-          totalASDamage += reactMagDamage;
-          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'awakening', source: '覚醒:再発動磁気' + (mag.skill ? '(スキル' + mag.skill + ')' : ''), value: reactMagDamage });
-          totalMagneticDamage += reactMagDamage;
-        });
       });
     });
 
@@ -2110,6 +2094,8 @@ function calculateAll({
       damageLedger: summarizeDamageLedger(damageLedger, damageLedgerMeta),
       // 磁気ロス（ミヤ・クラリス）の内訳：英雄磁気弾数期待値・超過率・超過ダメージ・ロス係数
       magneticLosses: magneticLosses.map((l, i) => ({ hero: heroes[i].name, ...l })),
+      // 補正AS発動率（沈黙・再発動・全突込み。AS付随効果の発動率）
+      correctedAsRates: correctedAsRates.map((rate, i) => ({ hero: heroes[i].name, rate })),
       ironWallCorrection,
       debuffDurabilityCorrection,
       // 衰弱量（平準化・%）= (衰弱耐久係数 - 1) × 100

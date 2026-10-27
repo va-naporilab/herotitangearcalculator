@@ -147,6 +147,9 @@ function interpolateLinear(x, xs, ys) {
 }
 
 // 補正AS発動率：沈黙の影響・全軍突撃・スキル再発動を込めた「1ラウンド平均のAS発動回数」
+//   補正AS発動率 = AS発動率 × (9 − 被沈黙数)/9 × (1 + 再発動の条件ターン重み×再発動率 + 全突のR1重み)
+//   エンジンはこれを英雄ごとに1回だけ計算し(correctedAsRates)、AS付随効果の発動率として共通に使う。
+//   ミヤ・クラリスの英雄磁気弾数期待値も同じ定義を使う（env は同一のオブジェクト）。
 //   ・全軍突撃：R1のAS発動数が2倍（ミーチェのダメ減と同じ前提）→ 全ラウンド平均で + R1の重み割合
 //   ・再発動  ：エンジンが集計済みの追加発動係数（条件ラウンドの重み和 × 確率）
 //   ・全突と再発動は互いに独立とみなし、基本発動率に対する増分を単純加算する（エンジンの方針と同じ）
@@ -1465,10 +1468,12 @@ const heroData = {
         },
         asBullets: 9,
         // AS付随燃焼：30%燃焼を3発（ユズハやノルシュと同時編成時は8発）
+        // ★ミスティの付随燃焼は特殊で、全軍突撃・スキル再発動を反映する（useCorrectedAsRate）。
+        //   ルチル・ノルシュの付随燃焼は、ゲーム内の上限の関係で反映しない（指定なし = AS発動率×沈黙のみ）
         asBurning: (ctx) => {
           const team = (ctx && ctx.teamHeroes) || [];
           const count = (team.includes('ユズハ') || team.includes('ノルシュ')) ? 8 : 3;
-          return { value: 30, count: count };
+          return { value: 30, count: count, useCorrectedAsRate: true };
         },
         // PS開幕燃焼：11.11%の確率で50%燃焼を3発
         openingBurning: { value: 50, count: 3, rate: 0.111 },
