@@ -4,6 +4,110 @@
 // 覚醒システム関連の定数（isAwakeningCapableHero, AWAKENING_*, getDefaultAwakening）は
 // 現在まだindex.html側に残置中（開発途中のため）。
 
+
+    // ===== システム開発ログ =====
+    // 新しいログは配列の先頭に追加してください（新しい順に表示されます）。
+    // date: 'YYYY-MM-DD', version: 'vX.X.X', category: '機能' | '英雄' | 'バランス' | 'UI' など自由, text: 内容
+    // ・text はテンプレートリテラル（バッククォート）なので、改行をそのまま書けます。
+    // ・超マイナー調整は version を省略してOK（バージョン表記は version 付きログの最大値から自動決定）。
+    const devLog = [
+      { date: '2026-10-27', version: 'v2.2.0', category: '修正', text: `ミヤの覚醒スキル４の基礎能力をパッシブ磁気の加算ではなく、超過分ダメージの割合への加算に修正` },
+      { date: '2026-10-27', version: 'v2.2.0', category: '修正', text: `拡散ダメージの計算式を修正、ピスカ覚醒スキルの過剰評価、拡散海軍基礎性能の過小評価を改善` },
+      { date: '2026-10-07', version: 'v2.1.2', category: '修正', text: `覚醒スキル３のランク６解禁効果が正常に適用されない問題を修正` },
+      { date: '2026-10-04', version: 'v2.1.1', category: 'UI', text: `携帯画面での表示問題を修正、右上にメニューを追加。` },
+      { date: '2026-10-04', version: 'v2.1.1', category: '修正', text: `覚醒スキル３のランク６解禁効果にも編成条件を適用` },
+      { date: '2026-10-04', version: 'v2.1.0', category: '機能', text: `各出力項目をクリックすると、名称・値・説明をポップアップ表示する機能を実装（説明文は statDescriptions で管理）` },
+      { date: '2026-10-04', version: 'v2.1.0', category: 'UI', text: `ページ下部にクレジット・注意書きを追加。開発ログのカテゴリー配色を刷新し、インラインスタイルをstyle.cssへ移行` },
+      { date: '2026-10-04', version: 'v2.0.0', category: '英雄', text: `第１弾の覚醒を実装完了：ミヤ・メル・ソフィ・ピスカ・ルチル・ビスコット` },
+      { date: '2026-10-04', version: 'v2.0.0', category: '機能', text: `英雄計算特性値に現編成の「衰弱量」を追加、環境変数に「敵の衰弱量」を追加、ビスコットの衰弱抵抗ロジックを構築` },
+      { date: '2026-10-04', version: 'v2.0.0', category: '修正', text: `拡散ダメージをAS本体に対する割合ではなく指定値の絶対値ダメージに修正` },
+      { date: '2026-10-04', version: 'v2.0.0', category: '修正', text: `燃焼空軍などで鼓動がパッシブ燃焼にも作用していたバグを修正` },
+      { date: '2026-10-04', version: 'v2.0.0', category: '機能', text: `ダメージ台帳を実装、各ダメージに関連タグを追加` },
+      { date: '2026-10-04', version: 'v2.0.0', category: 'UI', text: `各英雄計算値に覚醒の増分表示を実装（覚醒ON-OFFの比較）` },
+      { date: '2026-09-21', version: 'v1.9.0', category: '開発', text: `覚醒スキル情報を、計算エンジン側での個別加算から英雄データ側に移行` },
+      { date: '2026-09-21', version: 'v1.8.0', category: '機能', text: `ソフィ・ピスカ・ルチルの覚醒スキル1（開戦シールド加算＋ASダメージ加算、ミヤと共通ロジック）を追加` },
+      { date: '2026-09-21', version: 'v1.7.0', category: '英雄', text: `ミヤの覚醒スキル1～4を実装（開戦シールド加算、ASダメージ加算、AS付随磁気×2種、グローバル磁気効果強化、パッシブ磁気ダメージ加算、新規「磁気燃焼ダメージ軽減」効果）` },
+      { date: '2026-09-21', version: 'v1.6.0', category: 'UI', text: `覚醒効果に対しONOFFトグルを実装` },
+      { date: '2026-09-21', version: 'v1.6.0', category: '機能', text: `AS付随効果（付随磁気・付随燃焼）はダメージ割合の影響を受けず常に100%で再発動するよう分離。衰弱付与（衝撃等）とタイタンのAS付随効果（磁場・灼熱・破凱）に「トリガー確率＝AS発動率×(1+条件重み×再発動確率)」を適用` },
+      { date: '2026-09-21', version: 'v1.5.1', category: '機能', text: `鉄壁継続ラウンド判定に破壊不能の+1ラウンドを反映` },
+      { date: '2026-09-21', version: 'v1.5.0', category: '機能', text: `覚醒スキル「再発動」系を実装（ミヤ・ルチルの覚醒スキル3）、タイタン等の付与量の連動を確認` },
+      { date: '2026-09-21', version: 'v1.4.0', category: '機能', text: `相性環境設定に「敵の磁気燃焼依存率」「敵の異常ダメージ軽減」を追加し、編成中の磁気・燃焼ダメージに軽減効果を適用` },
+      { date: '2026-09-21', version: 'v1.3.3', category: '機能', text: `英雄計算の特性値に「磁気ダメージ依存率」「燃焼ダメージ依存率」を追加` },
+      { date: '2026-09-21', version: 'v1.3.2', category: '開発', text: `ファイル分割：CSS、静的定数などを分離` },
+      { date: '2026-09-21', version: 'v1.3.1', category: 'UI', text: `覚醒タブの配色をタイタン装備と統一、スキルランク入力をスライダー化、タブアイコンをシンプルなSVGに変更` },
+      { date: '2026-09-21', version: 'v1.3.0', category: 'UI', text: `覚醒システムの準備（対応英雄の指定、覚醒タブ、スキルLv0-10入力欄）。現対応英雄：ミヤ・ソフィ・メル・ピスカ・ルチル・ビスコット` },
+      { date: '2026-09-21', version: 'v1.2.2', category: '修正', text: `全軍突撃の拡散ダメージ英雄についてのバグを修正` },
+      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: `保存データを上部に移動、「デフォルト設定を読み込む」を追加` },
+      { date: '2026-09-21', version: 'v1.2.1', category: '英雄', text: `デスコ実装` },
+      { date: '2026-09-21', version: 'v1.2.1', category: '英雄', text: `レイチェルの収束の加算効果を専7→専5に修正` },
+      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: `ローカルストレージによる保存機能を実装` },
+      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: `開発ログを実装` }
+    ];
+
+    // ===== バージョン表記（タイトル・ヘッダーで共通使用） =====
+    // devLog のうち version を持つエントリの最大値を採用（並び順を間違えても矛盾しない）。
+    const compareVersion = (a, b) => {
+      const pa = String(a).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+      const pb = String(b).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
+      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
+        const d = (pa[i] || 0) - (pb[i] || 0);
+        if (d !== 0) return d;
+      }
+      return 0;
+    };
+    const getLatestVersion = (log) =>
+      log.filter(l => l.version).map(l => l.version).reduce((m, v) => (m === null || compareVersion(v, m) > 0 ? v : m), null) || 'v0.0.0';
+    const APP_VERSION = getLatestVersion(devLog);
+    const APP_TITLE = '複合英雄強さ計算ツール';
+
+    // 開発ログの1ページあたりの表示件数
+    const DEVLOG_PAGE_SIZE = 20;
+
+    
+    // ===== 開発ログのカテゴリー → CSSクラス（配色は style.css の .devlog-cat-* で定義） =====
+    // 未登録のカテゴリーは 'other' 扱いになります。
+    const devLogCategoryClass = {
+      '機能': 'feature',
+      '英雄': 'hero',
+      'バランス': 'balance',
+      'UI': 'ui',
+      '修正': 'fix',
+      '開発': 'dev'
+    };
+
+    // ===== サイトメニュー（ヘッダー右上のメニューボタンに表示） =====
+    // name: 表示名 / url: リンク先 / current: true で「現在のページ」表示（リンク無効）
+    // newTab: true で別タブで開く（外部サイト向け。省略時は同じタブ）
+    // url が空（''）の項目は「準備中」として灰色表示（リンクなし）。追加・並べ替えはこの配列を編集するだけでOK。
+    const siteMenu = {
+      title: '他のツール',
+      items: [
+        { name: '複合英雄強さ計算ツール', url: 'index.html', current: true },
+        { name: '英雄育成 - 素材計算', url: 'https://va-naporilab.github.io/herolevelingresources/' },
+        { name: '換算値と装備バフ比較', url: 'https://va-naporilab.github.io/equipmentbuff-evaluator/' },
+        { name: 'ナポリ探究所 - ツール集', url: 'https://sites.google.com/view/naporilab/tools' },
+        { name: 'X（Twitter）- なぽ', url: 'https://x.com/naporitan1_3531' }
+        // 例: { name: '○○ツール', url: 'https://ユーザー名.github.io/リポジトリ名/', newTab: true },
+      ]
+    };
+
+    // ===== ページ下部のクレジット・注意書き =====
+    const footerInfo = {
+      credits: [
+        `本ツールは個人が制作した非公式のシミュレーターであり、ビビッドアーミー／TopWar公式とは一切関係ありません。`,
+        `ゲームデータの著作権は、G123ないしはRivergameに帰属します。`,
+        `考察の考え方の一部は空野こんこん氏のブログを参考としています。また、覚醒の効果などの検討には、topwarfandom.com においてNass氏が公開している情報を参照しています。`
+      ],
+      notice: `本ツール内での計算ロジックのほとんどは、考察に基づく期待値上の概算であり、ゲーム内での挙動を正確にとらえているとは限りません。`,
+      contactLead: '質問・ご連絡・バグの報告は',
+      contacts: [
+        { label: 'X', id: 'naporitan1_3531', url: 'https://x.com/naporitan1_3531' },
+        { label: 'Discord', id: 'naporitan1sei_05103' }   // urlなし＝テキスト表示
+      ],
+      contactTail: 'までお願いします。',
+      copyright: '© 2026 ナポリタン1世（Napo）'
+    };
+
     // ユーティリティ関数
     const formatNumber = (num) => {
       if (num === 0) return '0';
@@ -170,63 +274,6 @@
     };
 
 
-    // ===== システム開発ログ =====
-    // 新しいログは配列の先頭に追加してください（新しい順に表示されます）。
-    // date: 'YYYY-MM-DD', version: 'vX.X.X', category: '機能' | '英雄' | 'バランス' | 'UI' など自由, text: 内容
-    // ・text はテンプレートリテラル（バッククォート）なので、改行をそのまま書けます。
-    // ・超マイナー調整は version を省略してOK（バージョン表記は version 付きログの最大値から自動決定）。
-    const devLog = [
-      { date: '2026-10-27', version: 'v2.2.0', category: '修正', text: `ミヤの覚醒スキル４の基礎能力をパッシブ磁気の加算ではなく、超過分ダメージの割合への加算に修正` },
-      { date: '2026-10-27', version: 'v2.2.0', category: '修正', text: `拡散ダメージの計算式を修正、ピスカ覚醒スキルの過剰評価、拡散海軍基礎性能の過小評価を改善` },
-      { date: '2026-10-07', version: 'v2.1.2', category: '修正', text: `覚醒スキル３のランク６解禁効果が正常に適用されない問題を修正` },
-      { date: '2026-10-04', version: 'v2.1.1', category: 'UI', text: `携帯画面での表示問題を修正、右上にメニューを追加。` },
-      { date: '2026-10-04', version: 'v2.1.1', category: '修正', text: `覚醒スキル３のランク６解禁効果にも編成条件を適用` },
-      { date: '2026-10-04', version: 'v2.1.0', category: '機能', text: `各出力項目をクリックすると、名称・値・説明をポップアップ表示する機能を実装（説明文は statDescriptions で管理）` },
-      { date: '2026-10-04', version: 'v2.1.0', category: 'UI', text: `ページ下部にクレジット・注意書きを追加。開発ログのカテゴリー配色を刷新し、インラインスタイルをstyle.cssへ移行` },
-      { date: '2026-10-04', version: 'v2.0.0', category: '英雄', text: `第１弾の覚醒を実装完了：ミヤ・メル・ソフィ・ピスカ・ルチル・ビスコット` },
-      { date: '2026-10-04', version: 'v2.0.0', category: '機能', text: `英雄計算特性値に現編成の「衰弱量」を追加、環境変数に「敵の衰弱量」を追加、ビスコットの衰弱抵抗ロジックを構築` },
-      { date: '2026-10-04', version: 'v2.0.0', category: '修正', text: `拡散ダメージをAS本体に対する割合ではなく指定値の絶対値ダメージに修正` },
-      { date: '2026-10-04', version: 'v2.0.0', category: '修正', text: `燃焼空軍などで鼓動がパッシブ燃焼にも作用していたバグを修正` },
-      { date: '2026-10-04', version: 'v2.0.0', category: '機能', text: `ダメージ台帳を実装、各ダメージに関連タグを追加` },
-      { date: '2026-10-04', version: 'v2.0.0', category: 'UI', text: `各英雄計算値に覚醒の増分表示を実装（覚醒ON-OFFの比較）` },
-      { date: '2026-09-21', version: 'v1.9.0', category: '開発', text: `覚醒スキル情報を、計算エンジン側での個別加算から英雄データ側に移行` },
-      { date: '2026-09-21', version: 'v1.8.0', category: '機能', text: `ソフィ・ピスカ・ルチルの覚醒スキル1（開戦シールド加算＋ASダメージ加算、ミヤと共通ロジック）を追加` },
-      { date: '2026-09-21', version: 'v1.7.0', category: '英雄', text: `ミヤの覚醒スキル1～4を実装（開戦シールド加算、ASダメージ加算、AS付随磁気×2種、グローバル磁気効果強化、パッシブ磁気ダメージ加算、新規「磁気燃焼ダメージ軽減」効果）` },
-      { date: '2026-09-21', version: 'v1.6.0', category: 'UI', text: `覚醒効果に対しONOFFトグルを実装` },
-      { date: '2026-09-21', version: 'v1.6.0', category: '機能', text: `AS付随効果（付随磁気・付随燃焼）はダメージ割合の影響を受けず常に100%で再発動するよう分離。衰弱付与（衝撃等）とタイタンのAS付随効果（磁場・灼熱・破凱）に「トリガー確率＝AS発動率×(1+条件重み×再発動確率)」を適用` },
-      { date: '2026-09-21', version: 'v1.5.1', category: '機能', text: `鉄壁継続ラウンド判定に破壊不能の+1ラウンドを反映` },
-      { date: '2026-09-21', version: 'v1.5.0', category: '機能', text: `覚醒スキル「再発動」系を実装（ミヤ・ルチルの覚醒スキル3）、タイタン等の付与量の連動を確認` },
-      { date: '2026-09-21', version: 'v1.4.0', category: '機能', text: `相性環境設定に「敵の磁気燃焼依存率」「敵の異常ダメージ軽減」を追加し、編成中の磁気・燃焼ダメージに軽減効果を適用` },
-      { date: '2026-09-21', version: 'v1.3.3', category: '機能', text: `英雄計算の特性値に「磁気ダメージ依存率」「燃焼ダメージ依存率」を追加` },
-      { date: '2026-09-21', version: 'v1.3.2', category: '開発', text: `ファイル分割：CSS、静的定数などを分離` },
-      { date: '2026-09-21', version: 'v1.3.1', category: 'UI', text: `覚醒タブの配色をタイタン装備と統一、スキルランク入力をスライダー化、タブアイコンをシンプルなSVGに変更` },
-      { date: '2026-09-21', version: 'v1.3.0', category: 'UI', text: `覚醒システムの準備（対応英雄の指定、覚醒タブ、スキルLv0-10入力欄）。現対応英雄：ミヤ・ソフィ・メル・ピスカ・ルチル・ビスコット` },
-      { date: '2026-09-21', version: 'v1.2.2', category: '修正', text: `全軍突撃の拡散ダメージ英雄についてのバグを修正` },
-      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: `保存データを上部に移動、「デフォルト設定を読み込む」を追加` },
-      { date: '2026-09-21', version: 'v1.2.1', category: '英雄', text: `デスコ実装` },
-      { date: '2026-09-21', version: 'v1.2.1', category: '英雄', text: `レイチェルの収束の加算効果を専7→専5に修正` },
-      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: `ローカルストレージによる保存機能を実装` },
-      { date: '2026-09-21', version: 'v1.2.1', category: '機能', text: `開発ログを実装` }
-    ];
-
-    // ===== バージョン表記（タイトル・ヘッダーで共通使用） =====
-    // devLog のうち version を持つエントリの最大値を採用（並び順を間違えても矛盾しない）。
-    const compareVersion = (a, b) => {
-      const pa = String(a).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
-      const pb = String(b).replace(/^v/i, '').split('.').map(n => parseInt(n, 10) || 0);
-      for (let i = 0; i < Math.max(pa.length, pb.length); i++) {
-        const d = (pa[i] || 0) - (pb[i] || 0);
-        if (d !== 0) return d;
-      }
-      return 0;
-    };
-    const getLatestVersion = (log) =>
-      log.filter(l => l.version).map(l => l.version).reduce((m, v) => (m === null || compareVersion(v, m) > 0 ? v : m), null) || 'v0.0.0';
-    const APP_VERSION = getLatestVersion(devLog);
-    const APP_TITLE = '複合英雄強さ計算ツール';
-
-    // 開発ログの1ページあたりの表示件数
-    const DEVLOG_PAGE_SIZE = 20;
 
     const presets = {
       1: ['フランカ', 'ミヤ', 'ルネ'],
@@ -301,49 +348,6 @@
     const slotNames = ['rifle', 'armor', 'vision', 'head', 'handy', 'boots'];
     const slotDisplayNames = ['ライフル', 'アーマー', '視野', 'ヘッド', 'ハンディ', 'ブーツ'];
 
-    // ===== 開発ログのカテゴリー → CSSクラス（配色は style.css の .devlog-cat-* で定義） =====
-    // 未登録のカテゴリーは 'other' 扱いになります。
-    const devLogCategoryClass = {
-      '機能': 'feature',
-      '英雄': 'hero',
-      'バランス': 'balance',
-      'UI': 'ui',
-      '修正': 'fix',
-      '開発': 'dev'
-    };
-
-    // ===== サイトメニュー（ヘッダー右上のメニューボタンに表示） =====
-    // name: 表示名 / url: リンク先 / current: true で「現在のページ」表示（リンク無効）
-    // newTab: true で別タブで開く（外部サイト向け。省略時は同じタブ）
-    // url が空（''）の項目は「準備中」として灰色表示（リンクなし）。追加・並べ替えはこの配列を編集するだけでOK。
-    const siteMenu = {
-      title: '他のツール',
-      items: [
-        { name: '複合英雄強さ計算ツール', url: 'index.html', current: true },
-        { name: '英雄育成 - 素材計算', url: 'https://va-naporilab.github.io/herolevelingresources/' },
-        { name: '換算値と装備バフ比較', url: 'https://va-naporilab.github.io/equipmentbuff-evaluator/' },
-        { name: 'ナポリ探究所 - ツール集', url: 'https://sites.google.com/view/naporilab/tools' },
-        { name: 'X（Twitter）- なぽ', url: 'https://x.com/naporitan1_3531' }
-        // 例: { name: '○○ツール', url: 'https://ユーザー名.github.io/リポジトリ名/', newTab: true },
-      ]
-    };
-
-    // ===== ページ下部のクレジット・注意書き =====
-    const footerInfo = {
-      credits: [
-        `本ツールは個人が制作した非公式のシミュレーターであり、ビビッドアーミー／TopWar公式とは一切関係ありません。`,
-        `ゲームデータの著作権は、G123ないしはRivergameに帰属します。`,
-        `考察の考え方の一部は空野こんこん氏のブログを参考としています。また、覚醒の効果などの検討には、topwarfandom.com においてNass氏が公開している情報を参照しています。`
-      ],
-      notice: `本ツール内での計算ロジックのほとんどは、考察に基づく期待値上の概算であり、ゲーム内での挙動を正確にとらえているとは限りません。`,
-      contactLead: '質問・ご連絡・バグの報告は',
-      contacts: [
-        { label: 'X', id: 'naporitan1_3531', url: 'https://x.com/naporitan1_3531' },
-        { label: 'Discord', id: 'naporitan1sei_05103' }   // urlなし＝テキスト表示
-      ],
-      contactTail: 'までお願いします。',
-      copyright: '© 2026 ナポリタン1世（Napo）'
-    };
 
     // ===== 出力項目のポップアップ説明（出力値クリックのポップアップで表示） =====
     // キーは calculations の項目名。name: ポップアップ見出し / desc: 説明文。
