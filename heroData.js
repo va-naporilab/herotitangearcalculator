@@ -27,8 +27,20 @@
 //     awakening.comboCountBonus(ranks, exLv, ctx)          : 確率で連撃回数+1の配列 [{condition:'always'|'ironWallActive', triggerRate(%)}]
 //     awakening.comboWeakenResist(ranks, exLv, ctx)        : 連撃ダメージにだけ掛かる衰弱抵抗 {prob(0〜1), resist(%)}（なしはnull）
 //
+// ■ 磁気ロス（超過率）：ミヤ・クラリスのPS磁気／覚醒磁気を減衰させる係数
+//     英雄データ側：magneticLoss: { excessDamageBase(ex) }   … この項目を持つ英雄だけが対象。
+//                    excessDamageBase は「超過ダメージ(%)」の基礎値（省略時0 = 超過分は完全にロス）
+//                    awakening.excessDamageBonus(ranks, exLv) … 覚醒による超過ダメージへの加算（%）
+//     エンジンは resolveMagneticLosses(heroes, ranksList, env) を1回呼び、英雄ごとの coef を磁気ダメージに掛けるだけ。
+//       env = { runeMagneticBonus,        // ルネ等の磁気弾数ボーナス（エンジンが算出済みの値）
+//               effectiveSilenceCount,    // 覚醒の沈黙軽減込みの被沈黙数
+//               firstRoundShare,          // 火力用R1の重み割合（powerShare[0]）
+//               rushByHero[i],            // 英雄iが全軍突撃を装備しているか（タイタンON時のみtrue）
+//               reactivationFactor[i] }   // 英雄iのスキル再発動の追加発動係数（付随効果も再発動するもののみの合計）
+//     戻り値：[{ bullets, excessRate, excessDamage, coef }, ...]（対象外の英雄は coef = 1）
+//
 // ■ エンジンが参照する統一ヘルパー（このファイル末尾側で定義）
-//     resolveAsDamage / resolveAsBullets / resolveShieldBuff / resolveOpeningShield / buildTeamCtx
+//     resolveAsDamage / resolveAsBullets / resolveShieldBuff / resolveOpeningShield / buildTeamCtx / resolveMagneticLosses
 //
 // ■ エンジンが英雄名ではなく「項目の有無」で拾う設計（英雄名を変更してもエンジンは壊れない）
 //     例：scatterDamage / psVulnerableValue / asExtraEffect / taunt / psDebuffValue / asDebuff ...
@@ -111,6 +123,83 @@ function resolveOpeningShield(data, exLv, awakeningRanks) {
   return base;
 }
 
+// ===== 磁気ロス（超過率）の共通ヘルパー =====
+// 超過率：英雄磁気弾数期待値に応じて決まる（テーブルの間は線形補間、範囲外は端の値）
+const MAGNETIC_EXCESS_TABLE = {
+  bullets: [2, 4.5, 6.6, 8.7, 100],
+  rates:   [0, 0.127, 0.30, 0.444, 0.95]
+};
+// 同時編成していると超過率に掛かる係数（2体いれば2つの係数を掛ける）
+const MAGNETIC_EXCESS_RATE_MODIFIERS = {
+  'フランカ': (ex) => ex >= 7 ? 0.4 : 0.45,
+  'ペトラ':   (ex) => ex >= 5 ? 0.4 : 0.45,
+  'アカネ':   () => 0.45,
+  'フェルム': () => 0.5
+};
+
+function interpolateLinear(x, xs, ys) {
+  if (x <= xs[0]) return ys[0];
+  if (x >= xs[xs.length - 1]) return ys[ys.length - 1];
+  for (let k = 1; k < xs.length; k++) {
+    if (x <= xs[k]) return ys[k - 1] + (ys[k] - ys[k - 1]) * (x - xs[k - 1]) / (xs[k] - xs[k - 1]);
+  }
+  return ys[ys.length - 1];
+}
+
+// 補正AS発動率：沈黙の影響・全軍突撃・スキル再発動を込めた「1ラウンド平均のAS発動回数」
+//   ・全軍突撃：R1のAS発動数が2倍（ミーチェのダメ減と同じ前提）→ 全ラウンド平均で + R1の重み割合
+//   ・再発動  ：エンジンが集計済みの追加発動係数（条件ラウンドの重み和 × 確率）
+//   ・全突と再発動は互いに独立とみなし、基本発動率に対する増分を単純加算する（エンジンの方針と同じ）
+function calcCorrectedAsRate(data, exLv, env, idx) {
+  const baseRate = typeof data.asRate === 'function' ? data.asRate(exLv) : (data.asRate || 0);
+  const silenced = baseRate * (9 - (env.effectiveSilenceCount || 0)) / 9 / 100;
+  const rushExtra = (env.rushByHero && env.rushByHero[idx]) ? (env.firstRoundShare || 0) : 0;
+  const reactFactor = (env.reactivationFactor && env.reactivationFactor[idx]) || 0;
+  return silenced * (1 + rushExtra + reactFactor);
+}
+
+// 英雄磁気弾数期待値（その英雄ローカル）
+//   ＝（PS磁気弾数 ＋ ルネ等の弾数ボーナス）＋（補正AS発動率 × 覚醒のAS付随磁気の弾数の和）
+//   覚醒を持たない英雄（クラリス）や覚醒OFF（ranks=null）では、後半は0になる
+function calcHeroMagneticBullets(data, exLv, ranks, env, idx) {
+  let bullets = 0;
+  if (data.psMagneticBullets) {
+    const ps = typeof data.psMagneticBullets === 'function' ? data.psMagneticBullets(exLv) : data.psMagneticBullets;
+    bullets += ps + (env.runeMagneticBonus || 0);
+  }
+  if (ranks && data.awakening && data.awakening.attachedMagnetics) {
+    const countSum = (data.awakening.attachedMagnetics(ranks, exLv) || []).reduce((sum, m) => sum + m.count, 0);
+    bullets += calcCorrectedAsRate(data, exLv, env, idx) * countSum;
+  }
+  return bullets;
+}
+
+// 磁気ロス係数を全英雄分まとめて解決する（エンジンはこれを1回呼ぶだけ）
+//   超過率   ＝ テーブル補間(英雄磁気弾数期待値) × 同時編成の係数（フランカ等）
+//   ロス係数 ＝ 1 − 超過率 + 超過率 × 超過ダメージ / 100
+//   超過ダメージ ＝ 基礎値(magneticLoss.excessDamageBase) ＋ 覚醒加算(awakening.excessDamageBonus)、上限100
+function resolveMagneticLosses(heroes, ranksList, env) {
+  const rateMultiplier = (heroes || []).reduce((m, h) => {
+    const f = MAGNETIC_EXCESS_RATE_MODIFIERS[h.name];
+    return f ? m * f(h.exclusiveLv) : m;
+  }, 1);
+  return (heroes || []).map((hero, i) => {
+    const data = heroData[hero.name];
+    if (!data || !data.magneticLoss) return { bullets: 0, excessRate: 0, excessDamage: 100, coef: 1 };
+    const exLv = hero.exclusiveLv;
+    const ranks = ranksList ? ranksList[i] : null;
+    const bullets = calcHeroMagneticBullets(data, exLv, ranks, env, i);
+    const excessRate = interpolateLinear(bullets, MAGNETIC_EXCESS_TABLE.bullets, MAGNETIC_EXCESS_TABLE.rates) * rateMultiplier;
+    let excessDamage = data.magneticLoss.excessDamageBase ? data.magneticLoss.excessDamageBase(exLv) : 0;
+    if (ranks && data.awakening && data.awakening.excessDamageBonus) {
+      excessDamage += data.awakening.excessDamageBonus(ranks, exLv) || 0;
+    }
+    excessDamage = Math.min(excessDamage, 100);
+    const coef = 1 - excessRate + excessRate * excessDamage / 100;
+    return { bullets, excessRate, excessDamage, coef };
+  });
+}
+
 // ===== PS連撃強化（累積型）の平均係数 =====
 // 連撃回数 n に対し、k発目の連撃は (k-1)×累積基礎値 だけ強化される累積型の効果。
 //   a = Σ_{i=1..整数部m} (m - i)  +  小数部f × (繰り上げ整数 - 1)   ※ 整数部mを使う（= m(m-1)/2 + f×m）
@@ -178,6 +267,10 @@ const heroData = {
           else if (ex >= 5) base += 1.0;  // 専5: 2.2 + 1.0 = 3.2個
           return base;
         },
+        // 磁気ロス：超過ダメージの基礎値10%、専7以上で+30%（覚醒スキル4の加算は awakening.excessDamageBonus）
+        magneticLoss: {
+          excessDamageBase: (ex) => 10 + (ex >= 7 ? 30 : 0)
+        },
         // ===== 覚醒スキル =====
         // 効果値・「どのスキルが何ランクでどう作用するか」は全てここ（heroData.js）で計算し、
         // 計算エンジン側には最終的な数値（または再発動のような複雑効果のみ小さな記述）を返す。
@@ -192,6 +285,7 @@ const heroData = {
         //   asBulletsBonus(ranks, exLv, ctx)        : AS弾数への加算値（期待値、発）
         //   attachedMagnetics(ranks, exLv)          : AS発動のたびに付随する磁気ダメージの配列 [{value, count, skill?}, ...]（skillは台帳表示用のスキル番号）
         //   passiveMagneticDamageBonus(ranks, exLv) : 自身のパッシブ磁気ダメージへの加算値（%、単純加算）
+        //   excessDamageBonus(ranks, exLv)          : 磁気ロスの「超過ダメージ」への加算値（%）。magneticLoss を持つ英雄だけが使う
         //   globalMagneticBoost(ranks, exLv, ctx)   : 全英雄の磁気ダメージに掛かるグローバル磁気強化への加算値（%）。編成条件ありの場合はctx.teamHeroesで判定
         //   magneticBurningReduction(ranks, exLv)   : 敵の磁気燃焼ダメージ軽減効果への加算値（新規・耐久側効果）
         //   globalBurningBoost(ranks, exLv, ctx)    : 全英雄の燃焼ダメージに掛かるグローバル燃焼強化への加算値（%）。編成条件ありの場合はctx.teamHeroesで判定
@@ -273,11 +367,11 @@ const heroData = {
             };
           },
 
-          // スキル4：パッシブ磁気ダメージ加算（ランク1以上）
-          // ・専7以上で1.5倍。ランク6以上のAS付随磁気は attachedMagnetics 側にまとめてある
-          // ※台帳の表示用：この加算が属するスキル番号（任意。無ければ番号なしで表示）
-          passiveMagneticSkill: 4,
-          passiveMagneticDamageBonus: (ranks, exLv) => {
+          // スキル4：磁気ロスの超過ダメージへの加算（ランク1以上）
+          // ・数値テーブルは従来のPS磁気ダメージ加算と同じ。専7以上で1.5倍
+          // ・ランク6以上のAS付随磁気は attachedMagnetics 側にまとめてある
+          // ・専7（+30）でランク10（+60）なら超過ダメージは 10+30+60 = 100 → ロス係数1（実質ロスなし）
+          excessDamageBonus: (ranks, exLv) => {
             if (!ranks.skill4 || ranks.skill4 <= 0) return 0;
             const table = [2, 4, 6, 9, 12, 16, 20, 26, 32, 40];
             let v = table[ranks.skill4 - 1] || 0;
@@ -301,7 +395,9 @@ const heroData = {
           if (ex >= 7) base += 2;  // 専7: 2 + 2 = 4発
           else if (ex >= 5) base += 1;  // 専5: 2 + 1 = 3発
           return base;
-        }
+        },
+        // 磁気ロス：超過ダメージは持たない（超過分は完全にロス）。覚醒を持たないのでPS磁気のみが対象
+        magneticLoss: {}
       },
       'ノーラ': {
         type: '海軍',

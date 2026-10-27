@@ -24,7 +24,7 @@
 //   最終集計（追撃総ダメージ=AS / パッシブダメージ=PS）に入る全項目に、由来のタグを付けた記録。
 //     entries[] : { hero, heroIndex, phase, kind, origin, source, slot, value, heartbeat, share }
 //       hero   : 英雄名（通常攻撃など英雄に属さないものは null）
-//       phase  : 'AS' | 'PS'（実際に加算された集計先。アカネ・フェルムのPS磁気はAS側に入る。PS脆弱はPS側で kind は 'vulnerable'）
+//       phase  : 'AS' | 'PS'（実際に加算された集計先。PS脆弱はPS側で kind は 'vulnerable'）
 //       kind   : 'direct' | 'magnetic' | 'burning' | 'vulnerable'
 //       origin : 'base' | 'hero' | 'titan' | 'awakening'
 //     byPhase / byKind / byPhaseKind / byOrigin / byHero … 集計済みの合計
@@ -728,6 +728,30 @@ function calculateAll({
       }
     });
 
+    // ===== 磁気ロス係数（ミヤ・クラリス：超過率依存） =====
+    // 英雄磁気弾数期待値 → 超過率 → ロス係数 の計算はすべて heroData.js の resolveMagneticLosses が行う。
+    // エンジンは「環境変数」を渡して、返ってきた coef を対象英雄の磁気ダメージに掛けるだけ。
+    // （magneticLoss を持たない英雄は coef = 1）
+    const rushByHero = heroes.map((hero, i) => {
+      if (!useTitan) return false;
+      return titanEquip[i].some((equip, slotIdx) => equip.effect === '全軍突撃' && slotNames[slotIdx] === 'rifle');
+    });
+    const magneticLosses = resolveMagneticLosses(
+      heroes,
+      heroes.map((hero, i) => (useAwakening ? (awakening[i] || {}) : null)),
+      {
+        runeMagneticBonus,
+        effectiveSilenceCount,
+        firstRoundShare: powerShare[0],
+        rushByHero,
+        // 付随効果も再発動するスキル再発動の追加発動係数の合計（applyReactivationToRate と同じ定義）
+        reactivationFactor: awakeningEffects.map(agg => agg
+          ? agg.reactivationEntries.filter(e => e.reactivateAsEffects).reduce((sum, e) => sum + e.factor, 0)
+          : 0)
+      }
+    );
+    const magneticLossCoefs = magneticLosses.map(l => l.coef);
+
 
     // ===== 磁気数・脆弱数の期待値（ダメージ計算より先に、全英雄・全効果分を事前集計する） =====
     //  ・磁気数 → アカネのAS追加直接ダメージ（asScatterDamage）で使う
@@ -975,14 +999,14 @@ function calculateAll({
         }
       }
       
-      // アカネ・フェルムのPS磁気
+      // アカネ・フェルムのPS磁気（ASの発動には依存しない固定確率の効果なので、パッシブダメージ(PS)に計上する）
       if (data.psMagnetic) {
         const psInfo = data.psMagnetic(exLv);
         if (psInfo) {
           const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
           const psMagneticDamage = (psInfo.rate * psInfo.value * psInfo.count * magneticBoost / 100) / abnormalReductionDivisor;
-          totalASDamage += psMagneticDamage;
-          ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: psMagneticDamage });
+          totalPSDamage += psMagneticDamage;
+          ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: psMagneticDamage });
           totalMagneticDamage += psMagneticDamage;
         }
       }
@@ -1037,7 +1061,7 @@ function calculateAll({
           data.psMagneticDamage(exLv) :
           data.psMagneticDamage;
         const magneticBoost = 100 + globalMagneticBoost + localMagneticBoosts[i];
-        const miyaMagneticDamage = (damage * bullets * magneticBoost / 100) / abnormalReductionDivisor;
+        const miyaMagneticDamage = (damage * bullets * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
         totalPSDamage += miyaMagneticDamage;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'hero', source: 'PS磁気', value: miyaMagneticDamage });
         totalMagneticDamage += miyaMagneticDamage;
@@ -1697,7 +1721,7 @@ function calculateAll({
 
       // --- asAttachedMagnetic：AS発動のたびに100%効果で発生する磁気ダメージ ---
       agg.attachedMagnetics.forEach(mag => {
-        const dmg = (actualRate * mag.value * mag.count * magneticBoost / 100) / abnormalReductionDivisor;
+        const dmg = (actualRate * mag.value * mag.count * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
         totalASDamage += dmg;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'awakening', source: '覚醒:AS付随磁気' + (mag.skill ? '(スキル' + mag.skill + ')' : ''), value: dmg });
         totalMagneticDamage += dmg;
@@ -1731,7 +1755,7 @@ function calculateAll({
         const bullets = typeof data.psMagneticBullets === 'function' ?
           data.psMagneticBullets(exLv) + runeMagneticBonus :
           data.psMagneticBullets + runeMagneticBonus;
-        const dmg = (agg.passiveMagneticDamageFlatSum * bullets * magneticBoost / 100) / abnormalReductionDivisor;
+        const dmg = (agg.passiveMagneticDamageFlatSum * bullets * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
         totalPSDamage += dmg;
         ledgerAdd({ hero: hero.name, idx: i, phase: 'PS', kind: 'magnetic', origin: 'awakening', source: '覚醒:パッシブ磁気加算' + (data.awakening.passiveMagneticSkill ? '(スキル' + data.awakening.passiveMagneticSkill + ')' : ''), value: dmg });
         totalMagneticDamage += dmg;
@@ -1782,7 +1806,7 @@ function calculateAll({
 
         // 覚醒スキルに付随する磁気（ミヤのスキル2・スキル4など）：100%効果
         agg.attachedMagnetics.forEach(mag => {
-          const reactMagDamage = (reactivateExpected * mag.value * mag.count * magneticBoost / 100) / abnormalReductionDivisor;
+          const reactMagDamage = (reactivateExpected * mag.value * mag.count * magneticBoost / 100 * magneticLossCoefs[i]) / abnormalReductionDivisor;
           totalASDamage += reactMagDamage;
           ledgerAdd({ hero: hero.name, idx: i, phase: 'AS', kind: 'magnetic', origin: 'awakening', source: '覚醒:再発動磁気' + (mag.skill ? '(スキル' + mag.skill + ')' : ''), value: reactMagDamage });
           totalMagneticDamage += reactMagDamage;
@@ -2084,6 +2108,8 @@ function calculateAll({
       asVulnerableDamage: totalASVulnerableDamage,
       psVulnerableDamage: totalPSVulnerableDamage,
       damageLedger: summarizeDamageLedger(damageLedger, damageLedgerMeta),
+      // 磁気ロス（ミヤ・クラリス）の内訳：英雄磁気弾数期待値・超過率・超過ダメージ・ロス係数
+      magneticLosses: magneticLosses.map((l, i) => ({ hero: heroes[i].name, ...l })),
       ironWallCorrection,
       debuffDurabilityCorrection,
       // 衰弱量（平準化・%）= (衰弱耐久係数 - 1) × 100
